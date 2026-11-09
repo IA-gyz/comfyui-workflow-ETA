@@ -1,6 +1,6 @@
 [project]
 name = "comfyui-workflow-ETA"
-version = "1.0.0"
+version = "0.2.24"
 description = 'Workflow Eta'
 authors = [{name = "IA-gyz"}]
 license = {text = "MIT"}
