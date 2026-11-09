@@ -1,0 +1,16 @@
+[project]
+name = "comfyui-workflow-ETA"
+version = "1.0.0"
+description = 'Workflow Eta'
+authors = [{name = "IA-gyz"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/IA-gyz/comfyui-workflow-ETA"
+
+[tool.comfy]
+PublisherId = "IA-gyz"
+DisplayName = "Workflow Eta"

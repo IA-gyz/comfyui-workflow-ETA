@@ -1,0 +1,220 @@
+{
+  "scope": {
+    "run_files": 100,
+    "outcomes": {
+      "done": 91,
+      "incomplete": 5,
+      "aborted": 4
+    },
+    "malformed_lines": 0,
+    "older_files_not_selected": 374,
+    "runs_with_machine_samples": 0
+  },
+  "recorded_initial_full": {
+    "n": 73,
+    "mae_seconds": 230.08725429383531,
+    "bias_seconds": 130.84564147904123,
+    "median_absolute_percentage_error": 24.215765000262767,
+    "p90_absolute_error_seconds": 569.580380243997
+  },
+  "recorded_initial_over_60_seconds": {
+    "n": 36,
+    "mae_seconds": 463.7624729467774,
+    "bias_seconds": 265.2154628237221,
+    "median_absolute_percentage_error": 164.02704099011063,
+    "p90_absolute_error_seconds": 867.055317702002
+  },
+  "recorded_midpoint_full_remaining_over_60_seconds": {
+    "n": 38,
+    "mae_seconds": 341.31787235952595,
+    "bias_seconds": 298.16190123257894,
+    "median_absolute_percentage_error": 132.9393375437042,
+    "p90_absolute_error_seconds": 568.7444934389987
+  },
+  "recorded_known_interval_coverage": {
+    "n": 4562,
+    "fraction": 0.2676457693993862,
+    "note": "Only non-partial intervals; sample-weighted, not a confidence guarantee"
+  },
+  "recorded_node_forecasts_over_1_second": {
+    "n": 289,
+    "mae_seconds": 11.385225863747426,
+    "bias_seconds": -4.220885682162543,
+    "median_absolute_percentage_error": 22.88878104087605,
+    "p90_absolute_error_seconds": 34.82975219400032
+  },
+  "recorded_nodes_by_class": {
+    "CLIPLoader": {
+      "n": 9,
+      "mae_seconds": 0.17516053655466143,
+      "bias_seconds": -0.10463739211033701,
+      "median_absolute_percentage_error": 5.6431614888057595,
+      "p90_absolute_error_seconds": 0.6431009049993008
+    },
+    "CLIPTextEncode": {
+      "n": 9,
+      "mae_seconds": 0.6719484294470325,
+      "bias_seconds": -0.668820972112725,
+      "median_absolute_percentage_error": 10.616704802442106,
+      "p90_absolute_error_seconds": 4.181373181010713
+    },
+    "ImageCompositeMasked": {
+      "n": 10,
+      "mae_seconds": 1.2033066145997509,
+      "bias_seconds": -1.0675341383985142,
+      "median_absolute_percentage_error": 34.31588814035425,
+      "p90_absolute_error_seconds": 2.4325140659984754
+    },
+    "ImageScaleToTotalPixels": {
+      "n": 4,
+      "mae_seconds": 3.104152989749821,
+      "bias_seconds": -3.104152989749821,
+      "median_absolute_percentage_error": 88.65161332695044,
+      "p90_absolute_error_seconds": 6.8132225860008475
+    },
+    "KSampler": {
+      "n": 2,
+      "mae_seconds": 51.71009096601483,
+      "bias_seconds": -51.71009096601483,
+      "median_absolute_percentage_error": 75.30281251608048,
+      "p90_absolute_error_seconds": 54.353575649009144
+    },
+    "LCRTXSuperResolution": {
+      "n": 39,
+      "mae_seconds": 17.896314361768837,
+      "bias_seconds": -12.346333106025108,
+      "median_absolute_percentage_error": 41.37199110268669,
+      "p90_absolute_error_seconds": 51.24781343099676
+    },
+    "Magik9ReferencesImages": {
+      "n": 2,
+      "mae_seconds": 0.969193461000259,
+      "bias_seconds": -0.969193461000259,
+      "median_absolute_percentage_error": 73.44257674643133,
+      "p90_absolute_error_seconds": 1.2442953710010443
+    },
+    "MagikDelay": {
+      "n": 15,
+      "mae_seconds": 0.000215769866432917,
+      "bias_seconds": -3.154386674092772e-05,
+      "median_absolute_percentage_error": 0.003221393569509126,
+      "p90_absolute_error_seconds": 0.0005331139982445166
+    },
+    "MagikFrameExtract": {
+      "n": 1,
+      "mae_seconds": 2.069023722995553,
+      "bias_seconds": -2.069023722995553,
+      "median_absolute_percentage_error": 82.76760432922084,
+      "p90_absolute_error_seconds": 2.069023722995553
+    },
+    "MagikShowAny": {
+      "n": 1,
+      "mae_seconds": 1.6804322530006175,
+      "bias_seconds": -1.6804322530006175,
+      "median_absolute_percentage_error": 99.7218128742627,
+      "p90_absolute_error_seconds": 1.6804322530006175
+    },
+    "MagikVideoGrid": {
+      "n": 1,
+      "mae_seconds": 0.4067580309929326,
+      "bias_seconds": 0.4067580309929326,
+      "median_absolute_percentage_error": 33.43701037796076,
+      "p90_absolute_error_seconds": 0.4067580309929326
+    },
+    "MagikVideoLoader": {
+      "n": 26,
+      "mae_seconds": 3.464166805192025,
+      "bias_seconds": -1.8824781372698873,
+      "median_absolute_percentage_error": 52.453106228543646,
+      "p90_absolute_error_seconds": 11.681551287998445
+    },
+    "MaskPreview": {
+      "n": 1,
+      "mae_seconds": 3.931959685003676,
+      "bias_seconds": -3.931959685003676,
+      "median_absolute_percentage_error": 99.31256388689383,
+      "p90_absolute_error_seconds": 3.931959685003676
+    },
+    "MiniMaxH3ReferenceToVideo": {
+      "n": 34,
+      "mae_seconds": 30.048647189647205,
+      "bias_seconds": -6.122903163528925,
+      "median_absolute_percentage_error": 28.135078000009564,
+      "p90_absolute_error_seconds": 76.48410691700337
+    },
+    "PreviewImage": {
+      "n": 23,
+      "mae_seconds": 0.8155983184780456,
+      "bias_seconds": -0.676264130129251,
+      "median_absolute_percentage_error": 24.559403454494447,
+      "p90_absolute_error_seconds": 2.480266577003931
+    },
+    "SAM3_Detect": {
+      "n": 32,
+      "mae_seconds": 8.923066520437423,
+      "bias_seconds": -2.1999069283119326,
+      "median_absolute_percentage_error": 2.5511223576045228,
+      "p90_absolute_error_seconds": 28.808138944004895
+    },
+    "SamplerCustomAdvanced": {
+      "n": 4,
+      "mae_seconds": 75.54726116075199,
+      "bias_seconds": 75.52881817424804,
+      "median_absolute_percentage_error": 41.16520231975418,
+      "p90_absolute_error_seconds": 265.57562898000106
+    },
+    "SaveVideo": {
+      "n": 38,
+      "mae_seconds": 14.127204981210351,
+      "bias_seconds": -13.316041950526841,
+      "median_absolute_percentage_error": 41.96616587669509,
+      "p90_absolute_error_seconds": 40.01912440599699
+    },
+    "UNETLoader": {
+      "n": 1,
+      "mae_seconds": 4.315719009995519,
+      "bias_seconds": -4.315719009995519,
+      "median_absolute_percentage_error": 98.03180140709632,
+      "p90_absolute_error_seconds": 4.315719009995519
+    },
+    "VAEDecode": {
+      "n": 36,
+      "mae_seconds": 5.181187634083573,
+      "bias_seconds": -1.2052244164720303,
+      "median_absolute_percentage_error": 2.9764692015749916,
+      "p90_absolute_error_seconds": 17.56595015199855
+    },
+    "VAELoader": {
+      "n": 1,
+      "mae_seconds": 0.9698374929939746,
+      "bias_seconds": -0.9698374929939746,
+      "median_absolute_percentage_error": 76.64300847379435,
+      "p90_absolute_error_seconds": 0.9698374929939746
+    }
+  },
+  "historical_node_backtest": {
+    "exact_median": {
+      "n": 130,
+      "mae_seconds": 5.65611856169626,
+      "bias_seconds": -5.283806749457514,
+      "median_absolute_percentage_error": 3.0541831862105626,
+      "p90_absolute_error_seconds": 2.714538688000175
+    },
+    "recent_weighted_median": {
+      "n": 130,
+      "mae_seconds": 5.390131941815605,
+      "bias_seconds": -5.010823800861412,
+      "median_absolute_percentage_error": 2.8609963451505056,
+      "p90_absolute_error_seconds": 2.714538688000175
+    },
+    "missing_matches": 195,
+    "cutoff": "strictly before each held-out run start; read-only DB; no outcome insertion",
+    "note": "Conditional on executed nodes; not a full-workflow queue-time backtest. DB snapshot may omit later measurements."
+  },
+  "limitations": [
+    "Recorded forecasts are evaluated as emitted; this does not rerun old ComfyUI code.",
+    "No machine-state benefit can be quantified for runs lacking telemetry.",
+    "Percentages use denominator >=1 second; tiny runs are separate from the >=60s workload metric.",
+    "Cached nodes, aborted runs and missing terminal records are not successful node-duration training."
+  ]
+}

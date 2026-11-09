@@ -1,0 +1,317 @@
+{
+  "scope": "sampler startup component only; strict chronological history; not full workflow replay",
+  "runs": [
+    {
+      "run": 1,
+      "actual": 286.2557912420016,
+      "old_initial": 681.0939700430026,
+      "sampler_actual": 117.40443104899896,
+      "sampler_prediction": {
+        "seconds": null,
+        "low": null,
+        "high": null,
+        "n": 0,
+        "tier": "none",
+        "approximate": true
+      }
+    },
+    {
+      "run": 2,
+      "actual": 473.70805700100027,
+      "old_initial": 612.3458122289979,
+      "sampler_actual": 224.94313328000135,
+      "sampler_prediction": {
+        "seconds": null,
+        "low": null,
+        "high": null,
+        "n": 0,
+        "tier": "none",
+        "approximate": true
+      }
+    },
+    {
+      "run": 3,
+      "actual": 809.6173894250023,
+      "old_initial": 604.8683380879994,
+      "sampler_actual": 434.9558350160005,
+      "sampler_prediction": {
+        "seconds": null,
+        "low": null,
+        "high": null,
+        "n": 0,
+        "tier": "none",
+        "approximate": true
+      }
+    },
+    {
+      "run": 4,
+      "actual": 288.96467922399825,
+      "old_initial": 626.0887329959992,
+      "sampler_actual": 117.12109848600085,
+      "sampler_prediction": {
+        "seconds": 119.86778575811279,
+        "low": 59.933892879056394,
+        "high": 179.80167863716918,
+        "n": 2,
+        "tier": "runtime-video-profile",
+        "step_time": 28.913576678937194,
+        "calibration": {
+          "axis": "effective_frames",
+          "target": 61,
+          "anchors": [
+            60,
+            147
+          ],
+          "power_slope": 0.7398160053492947,
+          "extrapolated": false,
+          "initialization_source": "measured model management",
+          "projection_kind": "runtime-video-learned",
+          "input_source": "header frame estimate bridged to measured history; actual inputs pending",
+          "frame_count_estimated": true,
+          "machine_context_reused": true
+        },
+        "approximate": true
+      }
+    },
+    {
+      "run": 5,
+      "actual": 819.9472684510001,
+      "old_initial": 609.1104285510008,
+      "sampler_actual": 434.95612633899873,
+      "sampler_prediction": {
+        "seconds": 438.94345794212563,
+        "low": 219.47172897106282,
+        "high": 658.4151869131884,
+        "n": 2,
+        "tier": "runtime-video-profile",
+        "step_time": 108.33361057242618,
+        "calibration": {
+          "axis": "effective_frames",
+          "target": 269,
+          "anchors": [
+            147,
+            268
+          ],
+          "power_slope": 1.109078415519949,
+          "extrapolated": true,
+          "initialization_source": "measured model management",
+          "projection_kind": "runtime-video-learned",
+          "input_source": "header frame estimate bridged to measured history; actual inputs pending",
+          "frame_count_estimated": true,
+          "machine_context_reused": true
+        },
+        "approximate": true
+      }
+    },
+    {
+      "run": 6,
+      "actual": 479.9889582789983,
+      "old_initial": 677.3241024849985,
+      "sampler_actual": 224.91053010299947,
+      "sampler_prediction": {
+        "seconds": 227.81926304251783,
+        "low": 113.90963152125892,
+        "high": 341.72889456377675,
+        "n": 3,
+        "tier": "runtime-video-profile",
+        "step_time": 55.8427772141278,
+        "calibration": {
+          "axis": "effective_frames",
+          "target": 148,
+          "anchors": [
+            147,
+            268
+          ],
+          "power_slope": 1.1087983459579769,
+          "extrapolated": false,
+          "initialization_source": "measured model management",
+          "projection_kind": "runtime-video-learned",
+          "input_source": "header frame estimate bridged to measured history; actual inputs pending",
+          "frame_count_estimated": true,
+          "machine_context_reused": true
+        },
+        "approximate": true
+      }
+    },
+    {
+      "run": 7,
+      "actual": 823.3476316020024,
+      "old_initial": 621.5744616810024,
+      "sampler_actual": 432.6692518230011,
+      "sampler_prediction": {
+        "seconds": 438.9786762492173,
+        "low": 219.48933812460865,
+        "high": 658.468014373826,
+        "n": 4,
+        "tier": "runtime-video-profile",
+        "step_time": 108.31538857428092,
+        "calibration": {
+          "axis": "effective_frames",
+          "target": 269,
+          "anchors": [
+            147,
+            268
+          ],
+          "power_slope": 1.1090731070109836,
+          "extrapolated": true,
+          "initialization_source": "measured model management",
+          "projection_kind": "runtime-video-learned",
+          "input_source": "header frame estimate bridged to measured history; actual inputs pending",
+          "frame_count_estimated": true,
+          "machine_context_reused": true
+        },
+        "approximate": true
+      }
+    },
+    {
+      "run": 8,
+      "actual": 476.8957959010004,
+      "old_initial": 681.9298166999993,
+      "sampler_actual": 226.25705551699866,
+      "sampler_prediction": {
+        "seconds": 227.853741213858,
+        "low": 113.926870606929,
+        "high": 341.780611820787,
+        "n": 5,
+        "tier": "runtime-video-profile",
+        "step_time": 55.83366742239038,
+        "calibration": {
+          "axis": "effective_frames",
+          "target": 148,
+          "anchors": [
+            147,
+            268
+          ],
+          "power_slope": 1.1090731070109836,
+          "extrapolated": false,
+          "initialization_source": "measured model management",
+          "projection_kind": "runtime-video-learned",
+          "input_source": "header frame estimate bridged to measured history; actual inputs pending",
+          "frame_count_estimated": true,
+          "machine_context_reused": true
+        },
+        "approximate": true
+      }
+    },
+    {
+      "run": 9,
+      "actual": 287.3557928000009,
+      "old_initial": 602.8373205910008,
+      "sampler_actual": 117.37749526100015,
+      "sampler_prediction": {
+        "seconds": 119.6665807839861,
+        "low": 59.83329039199305,
+        "high": 179.49987117597917,
+        "n": 5,
+        "tier": "runtime-video-profile",
+        "step_time": 28.912158856708853,
+        "calibration": {
+          "axis": "effective_frames",
+          "target": 61,
+          "anchors": [
+            60,
+            147
+          ],
+          "power_slope": 0.7398717580321923,
+          "extrapolated": false,
+          "initialization_source": "measured model management",
+          "projection_kind": "runtime-video-learned",
+          "input_source": "header frame estimate bridged to measured history; actual inputs pending",
+          "frame_count_estimated": true,
+          "machine_context_reused": true
+        },
+        "approximate": true
+      }
+    },
+    {
+      "run": 10,
+      "actual": 824.0954482289999,
+      "old_initial": 603.053601004,
+      "sampler_actual": 435.4099727629982,
+      "sampler_prediction": {
+        "seconds": 438.89305362313365,
+        "low": 219.44652681156683,
+        "high": 658.3395804347005,
+        "n": 6,
+        "tier": "runtime-video-profile",
+        "step_time": 108.31527773305412,
+        "calibration": {
+          "axis": "effective_frames",
+          "target": 269,
+          "anchors": [
+            147,
+            268
+          ],
+          "power_slope": 1.1087983459579769,
+          "extrapolated": true,
+          "initialization_source": "measured model management",
+          "projection_kind": "runtime-video-learned",
+          "input_source": "header frame estimate bridged to measured history; actual inputs pending",
+          "frame_count_estimated": true,
+          "machine_context_reused": true
+        },
+        "approximate": true
+      }
+    },
+    {
+      "run": 11,
+      "actual": 288.49845840000125,
+      "old_initial": 606.0483760909996,
+      "sampler_actual": 117.44824139700359,
+      "sampler_prediction": {
+        "seconds": 119.73837855250805,
+        "low": 59.869189276254026,
+        "high": 179.6075678287621,
+        "n": 6,
+        "tier": "runtime-video-profile",
+        "step_time": 28.913576678937194,
+        "calibration": {
+          "axis": "effective_frames",
+          "target": 61,
+          "anchors": [
+            60,
+            147
+          ],
+          "power_slope": 0.7398160053492947,
+          "extrapolated": false,
+          "initialization_source": "measured model management",
+          "projection_kind": "runtime-video-learned",
+          "input_source": "header frame estimate bridged to measured history; actual inputs pending",
+          "frame_count_estimated": true,
+          "machine_context_reused": true
+        },
+        "approximate": true
+      }
+    },
+    {
+      "run": 12,
+      "actual": 474.9156215160001,
+      "old_initial": 584.7025434060008,
+      "sampler_actual": 225.98020133200043,
+      "sampler_prediction": {
+        "seconds": 227.8818991246288,
+        "low": 113.9409495623144,
+        "high": 341.8228486869432,
+        "n": 7,
+        "tier": "runtime-video-profile",
+        "step_time": 55.84288324759835,
+        "calibration": {
+          "axis": "effective_frames",
+          "target": 148,
+          "anchors": [
+            147,
+            268
+          ],
+          "power_slope": 1.109078415519949,
+          "extrapolated": false,
+          "initialization_source": "measured model management",
+          "projection_kind": "runtime-video-learned",
+          "input_source": "header frame estimate bridged to measured history; actual inputs pending",
+          "frame_count_estimated": true,
+          "machine_context_reused": true
+        },
+        "approximate": true
+      }
+    }
+  ]
+}
