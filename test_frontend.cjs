@@ -75,6 +75,17 @@ restored.onPropertyChanged("ui_scale", NaN);
 assert(restored.properties.ui_scale === 1);
 restored.setWorkflowUIScale(99);
 assert(restored.properties.ui_scale === 3);
+// litegraph configure() assigns size before properties and fires onPropertyChanged per property
+const loaded = new NodeType();
+loaded.onNodeCreated();
+loaded.onAdded();
+loaded.size = [1620, 1476];
+for (const k of ["ui_scale", "logs_visible", "bar_animation", "theme"]) {
+    loaded.properties[k] = { ui_scale: 3, logs_visible: false, bar_animation: "stripes", theme: "ocean" }[k];
+    loaded.onPropertyChanged(k, loaded.properties[k]);
+}
+loaded.onConfigure();
+assert(loaded.properties.ui_scale === 3 && loaded.size[0] === 1620 && loaded.size[1] === 1476, "reload at 300% keeps size: " + loaded.size);
 node.onRemoved();
 console.log("PASS: Python-defined node decoration, event updates, display rendering, disconnect, completion, interruption, scaling and persistence");
 

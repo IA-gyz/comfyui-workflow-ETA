@@ -427,6 +427,7 @@ app.registerExtension({
             onNodeCreated() {
                 this.isVirtualNode = true;
                 this.serialize_widgets = false;
+                this._workflowRestoring = true;
                 this.properties ??= {};
                 this.properties.ui_scale = normalizeWorkflowUIScale(this.properties.ui_scale);
                 this._workflowUIScale = this.properties.ui_scale;
@@ -440,7 +441,10 @@ app.registerExtension({
                 this.color = workflowTheme(this).title;
                 this.bgcolor = workflowTheme(this).bg;
             }
-            onAdded() { displays.add(this); this.setDirtyCanvas(true, false); scheduleWorkflowBarAnimation(); }
+            onAdded() {
+                displays.add(this); this.setDirtyCanvas(true, false); scheduleWorkflowBarAnimation();
+                if (typeof queueMicrotask === "function") queueMicrotask(() => { this._workflowRestoring = false; });
+            }
             onRemoved() {
                 if(workflowWatchDialog?._workflowOwner===this)workflowWatchDialog.close();
                 displays.delete(this);
@@ -544,8 +548,10 @@ app.registerExtension({
                 const size = [width, (WORKFLOW_BASE_HEIGHT + (this._workflowLogsVisible ? workflowLogHeight(this) : 0)) * scale];
                 if (this.setSize) this.setSize(size); else this.size = size;
                 this.setDirtyCanvas(true, false);
+                this._workflowRestoring = false;
             }
             onPropertyChanged(name, value) {
+                if (this._workflowRestoring) return true;
                 if (name === "ui_scale") { this.setWorkflowUIScale(value); return true; }
                 if (name === "theme") { this.setWorkflowETATheme(value); return true; }
                 if (name === "bar_animation") { this.setWorkflowBarAnimation(value); return true; }
