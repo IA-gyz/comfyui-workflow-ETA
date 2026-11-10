@@ -70,6 +70,31 @@ def _workflow_eta_valid(x, allow_zero=False):
     return isinstance(x, (int, float)) and math.isfinite(x) and (x >= 0 if allow_zero else x > 0)
 
 
+_INTERVAL_TIERS = {
+    "node-exact": (0.01, 0.99, 0.30),
+    "exact": (0.01, 0.99, 0.30),
+    "node-few": (0.01, 0.99, 0.50),
+    "few": (0.01, 0.99, 0.50),
+    "node-class": (0.01, 0.99, 0.40),
+    "step-scaled": (0.05, 0.95, 0.40),
+    "node-other-state": (0.01, 0.99, 0.55),
+    "other-state": (0.01, 0.99, 0.55),
+    "class": (0.01, 0.99, 0.65),
+    "class-other-state": (0.01, 0.99, 0.75),
+}
+
+
+def _workflow_eta_interval(values, tier, half_life):
+    """Tier-aware [low, high] around the median, targeting ~90% empirical coverage."""
+    q_low, q_high, spread = _INTERVAL_TIERS.get(tier, (0.05, 0.95, 0.30))
+    seconds = _workflow_eta_weighted_quantile(values, 0.5, half_life)
+    low = _workflow_eta_weighted_quantile(values, q_low, half_life)
+    high = _workflow_eta_weighted_quantile(values, q_high, half_life)
+    low = min(low, max(0.0, seconds * (1 - spread)))
+    high = max(high, seconds * (1 + spread))
+    return seconds, low, high
+
+
 class WorkflowETAHistory:
     HALF_LIFE = 8.0  # samples
 
@@ -455,10 +480,11 @@ class WorkflowETAHistory:
         if not rows:
             return {"seconds": None, "low": None, "high": None, "n": 0, "tier": "none"}
         values = [r[0] for r in rows]
+        seconds, low, high = _workflow_eta_interval(values, tier, self.HALF_LIFE)
         return {
-            "seconds": _workflow_eta_weighted_quantile(values, 0.5, self.HALF_LIFE),
-            "low": _workflow_eta_weighted_quantile(values, 0.25, self.HALF_LIFE),
-            "high": _workflow_eta_weighted_quantile(values, 0.75, self.HALF_LIFE),
+            "seconds": seconds,
+            "low": low,
+            "high": high,
             "n": len(values),
             "tier": tier,
         }
@@ -475,9 +501,10 @@ class WorkflowETAHistory:
         if not rows:
             return None
         durations = [first + (steps - 1) * rate + tail for first,rate,tail in rows]
-        return {"seconds": _workflow_eta_weighted_quantile(durations, .5, self.HALF_LIFE),
-                "low": _workflow_eta_weighted_quantile(durations, .25, self.HALF_LIFE),
-                "high": _workflow_eta_weighted_quantile(durations, .75, self.HALF_LIFE),
+        seconds, low, high = _workflow_eta_interval(durations, "step-scaled", self.HALF_LIFE)
+        return {"seconds": seconds,
+                "low": low,
+                "high": high,
                 "step_time": _workflow_eta_weighted_quantile([row[1] for row in rows], .5, self.HALF_LIFE),
                 "n":len(rows), "tier":"step-scaled"}
 
