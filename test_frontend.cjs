@@ -26,9 +26,11 @@ node.onAdded();
 const labels = [];
 const transforms = [];
 const cardRects = [];
+const gradients = [];
 const ctx = { scale(x,y){ transforms.push([x,y]); }, save(){}, restore(){}, beginPath(){}, rect(){}, clip(){},
     fillRect(x,y,w,h){ cardRects.push([this.fillStyle,this.globalAlpha,x,y,w,h]); },
-    moveTo(){},lineTo(){},closePath(){},fill(){},createLinearGradient(){return {addColorStop(){}};},
+    moveTo(){},lineTo(){},closePath(){},fill(){},
+    createLinearGradient(x0,y0,x1,y1){ const g={stops:[],addColorStop(o,c){g.stops.push([o,c]);}}; gradients.push([x0,y0,x1,y1,g.stops]); return g; },
     fillText(t){ labels.push(t); }, measureText(t){ return { width: t.length * 6 }; } };
 const emit = (name, detail) => handlers[name]({detail});
 emit("execution_start", {prompt_id:"one"});
@@ -61,6 +63,9 @@ expectCard({state:"running", remaining:65, elapsed:3, confidence:"estimated", wo
 expectCard({state:"running", remaining:65, elapsed:3, confidence:"estimated", fraction:.05}, "#ffd43b");
 expectCard({state:"running", remaining:65, elapsed:3, confidence:"learned", tiers:{"node-exact":2}, fraction:.05}, "#1a9e4b");
 expectCard({state:"running", remaining:65, elapsed:3, confidence:"learned", tiers:{"node-class":2}, fraction:.05}, "#9ce09c");
+labels.length=0; node.onDrawForeground(ctx);
+assert(labels.includes("ETA") && labels.includes("confidence") && labels.includes("+") && labels.includes("\u2212"), "gradient strip labels: "+labels.slice(-6));
+assert(gradients.some(g => g[0]===12 && g[1]===158 && g[2]===12 && g[3]===258 && g[4][0][0]===0 && g[4][0][1]==="#1a9e4b" && g[4][1][0]===1 && g[4][1][1]==="#e5484d"), "vertical green-top gradient: "+JSON.stringify(gradients.map(g=>g.slice(0,4))));
 node.onResize([100,100]);
 // Scale presets resize the panel and persist through properties/configuration.
 const menu = [];

@@ -643,19 +643,27 @@ app.registerExtension({
                 // Primary timing card: large value with persistent uncertainty wording.
                 ctx.fillStyle=theme.track;ctx.fillRect(12,158,width-24,100);
                 const confidenceLevel=workflowConfidenceLevel(p);
-                const confidenceColor=confidenceLevel>=0?WORKFLOW_CONFIDENCE_COLORS[confidenceLevel]:theme.accent;
-                if(confidenceLevel>=0){ctx.globalAlpha=.25;ctx.fillStyle=confidenceColor;ctx.fillRect(12,158,width-24,100);ctx.globalAlpha=1;}
-                ctx.fillStyle=confidenceColor;ctx.fillRect(12,158,4,100);
+                if(confidenceLevel>=0){ctx.globalAlpha=.25;ctx.fillStyle=WORKFLOW_CONFIDENCE_COLORS[confidenceLevel];ctx.fillRect(12,158,width-24,100);ctx.globalAlpha=1;}
+                const confidenceGradient=ctx.createLinearGradient(12,158,12,258);
+                confidenceGradient.addColorStop(0,WORKFLOW_CONFIDENCE_COLORS[4]);
+                confidenceGradient.addColorStop(1,WORKFLOW_CONFIDENCE_COLORS[0]);
+                ctx.fillStyle=confidenceGradient;ctx.fillRect(12,158,60,100);
+                ctx.textAlign="center";
+                text("+",42,174,"bold 14px sans-serif","#10181c");
+                text("ETA",42,202,"bold 12px sans-serif","#10181c");
+                text("confidence",42,216,"10px sans-serif","#10181c");
+                text("\u2212",42,250,"bold 14px sans-serif","#10181c");
+                ctx.textAlign="left";
                 const full=running ? (detail?(Number.isFinite(detail.provisional_remaining)?detail.provisional_remaining:null):remaining) : done?p.elapsed:null;
                 const fullLabel=done?"Actual total duration":running?(p.lower_bound?"Provisional full remaining estimate":"Full remaining estimate"):"Full remaining estimate";
-                text(fullLabel,26,181,"bold 17px sans-serif",theme.strong);
-                text(!connected?"Disconnected":Number.isFinite(full)?(done?"":"≈ ")+formatWorkflowDuration(full):running?"Waiting for timing…":"—",26,221,"bold 38px sans-serif",completedDurationColor);
+                text(fullLabel,84,181,"bold 17px sans-serif",theme.strong);
+                text(!connected?"Disconnected":Number.isFinite(full)?(done?"":"≈ ")+formatWorkflowDuration(full):running?"Waiting for timing…":"—",84,221,"bold 38px sans-serif",completedDurationColor);
                 const omitted=detail?.unpriced_nodes?.length||0;
                 const caveat=omitted?omitted+" nodes unpriced · "+(detail.provisional_notes?.[0]||"Their duration is excluded"):
                     detail?.graph_incomplete?"Graph incomplete; additional work may be missing":detail?.provisional_notes?.[0]||
                     (running?"Live step timing refines this estimate":"");
                 ctx.font="11px sans-serif";
-                text(fit(caveat),26,246,"11px sans-serif",p.lower_bound?theme.warning:theme.text);
+                text(fit(caveat),84,246,"11px sans-serif",p.lower_bound?theme.warning:theme.text);
                 const fraction = done ? 1 : running && Number.isFinite(p.fraction) ?
                     Math.max(0, Math.min(.99, p.fraction)) : 0;
                 drawWorkflowProgressBar(ctx, this, theme, color, width, fraction, running);
