@@ -1,6 +1,25 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
+const WORKFLOW_CONFIDENCE_COLORS = ["#e5484d", "#f76b15", "#ffd43b", "#9ce09c", "#1a9e4b"];
+const WORKFLOW_STRONG_TIERS = ["node-exact", "exact", "runtime-exact"];
+const WORKFLOW_WEAK_TIERS = ["class", "other-state", "class-other-state", "node-other-state", "node-class",
+    "machine-unmatched", "runtime-media-profile", "runtime-video-profile", "runtime-video-provisional",
+    "runtime-few", "runtime-profile", "step-scaled", "resolution-learned", "batch-learned", "frames-learned",
+    "reference-learned", "runtime-step-scaled", "runtime-video-learned"];
+function workflowConfidenceLevel(p) {
+    if (!p || p.state === "idle") return -1;
+    if (p.confidence === "lower-bound" || p.lower_bound) return 0;
+    if (p.confidence === "estimated") {
+        if (p.runtime_scaling?.tier === "runtime-video-provisional" || p.workload_approximate) return 1;
+        return 2;
+    }
+    const tiers = p.tiers || {};
+    const strong = WORKFLOW_STRONG_TIERS.some(k => (tiers[k] || 0) > 0);
+    const weak = WORKFLOW_WEAK_TIERS.some(k => (tiers[k] || 0) > 0);
+    return strong && !weak ? 4 : 3;
+}
+
 const UI_SCALE_MIN = 0.5;
 const UI_SCALE_MAX = 3;
 const UI_SCALE_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
@@ -623,7 +642,10 @@ app.registerExtension({
                 text(running ? fit(detail?.timing_message || confidence) : "Updates automatically for every workflow",18,149,"12px sans-serif",theme.muted);
                 // Primary timing card: large value with persistent uncertainty wording.
                 ctx.fillStyle=theme.track;ctx.fillRect(12,158,width-24,100);
-                ctx.fillStyle=theme.accent;ctx.fillRect(12,158,4,100);
+                const confidenceLevel=workflowConfidenceLevel(p);
+                const confidenceColor=confidenceLevel>=0?WORKFLOW_CONFIDENCE_COLORS[confidenceLevel]:theme.accent;
+                if(confidenceLevel>=0){ctx.globalAlpha=.25;ctx.fillStyle=confidenceColor;ctx.fillRect(12,158,width-24,100);ctx.globalAlpha=1;}
+                ctx.fillStyle=confidenceColor;ctx.fillRect(12,158,4,100);
                 const full=running ? (detail?(Number.isFinite(detail.provisional_remaining)?detail.provisional_remaining:null):remaining) : done?p.elapsed:null;
                 const fullLabel=done?"Actual total duration":running?(p.lower_bound?"Provisional full remaining estimate":"Full remaining estimate"):"Full remaining estimate";
                 text(fullLabel,26,181,"bold 17px sans-serif",theme.strong);

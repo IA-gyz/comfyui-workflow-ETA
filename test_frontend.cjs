@@ -25,7 +25,9 @@ assert(node.isVirtualNode);
 node.onAdded();
 const labels = [];
 const transforms = [];
-const ctx = { scale(x,y){ transforms.push([x,y]); }, save(){}, restore(){}, beginPath(){}, rect(){}, clip(){}, fillRect(){},
+const cardRects = [];
+const ctx = { scale(x,y){ transforms.push([x,y]); }, save(){}, restore(){}, beginPath(){}, rect(){}, clip(){},
+    fillRect(x,y,w,h){ cardRects.push([this.fillStyle,this.globalAlpha,x,y,w,h]); },
     moveTo(){},lineTo(){},closePath(){},fill(){},createLinearGradient(){return {addColorStop(){}};},
     fillText(t){ labels.push(t); }, measureText(t){ return { width: t.length * 6 }; } };
 const emit = (name, detail) => handlers[name]({detail});
@@ -51,6 +53,14 @@ assert(labels.includes("Completed") && labels.includes("13 s"));
 emit("workflow.eta", {state:"aborted"});
 labels.length=0;node.onDrawForeground(ctx);
 assert(labels.includes("Stopped / failed"));
+const cardColors = () => cardRects.filter(r => r[2]===12 && r[3]===158 && r[5]===100).map(r => r[0]);
+const expectCard = (detail, color) => { cardRects.length=0; emit("workflow.eta", detail); node.onDrawForeground(ctx);
+    assert(cardColors().includes(color), "card color "+color+" for confidence="+detail.confidence+" got "+cardColors()); };
+expectCard({state:"running", remaining:65, elapsed:3, confidence:"lower-bound", lower_bound:true, fraction:.05, nodes_done:2, nodes_total:8}, "#e5484d");
+expectCard({state:"running", remaining:65, elapsed:3, confidence:"estimated", workload_approximate:true, fraction:.05}, "#f76b15");
+expectCard({state:"running", remaining:65, elapsed:3, confidence:"estimated", fraction:.05}, "#ffd43b");
+expectCard({state:"running", remaining:65, elapsed:3, confidence:"learned", tiers:{"node-exact":2}, fraction:.05}, "#1a9e4b");
+expectCard({state:"running", remaining:65, elapsed:3, confidence:"learned", tiers:{"node-class":2}, fraction:.05}, "#9ce09c");
 node.onResize([100,100]);
 // Scale presets resize the panel and persist through properties/configuration.
 const menu = [];
