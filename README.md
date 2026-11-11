@@ -1,7 +1,7 @@
-# Workflow ETA v0.2.30
+# Workflow ETA v0.2.31
 
 This release includes the latest dimension detection, seven themes, eight
-progress-bar styles and the previous ETA reliability fixes. The package version is v0.2.30.
+progress-bar styles and the previous ETA reliability fixes. The package version is v0.2.31.
 
 Automatic timing history and a live display for ComfyUI workflows.
 
@@ -536,6 +536,15 @@ included in diagnostic node summaries. Estimated ranges remain provisional; they
 are not guaranteed confidence limits. Live remaining time stays on the main timer.
 The v0.2.22 replay results remain historical validation of the prediction engine;
 this release improves its inspection and records, not its timing model.
+
+## Independent browser panel (v0.2.31)
+
+The WorkflowETA node has an "open in new window" button (left of the clock button)
+that opens `/workflow/eta/panel` in a separate browser window titled **Workflow ETA**.
+The page is self-contained: it bootstraps from `GET /workflow/eta/status` and then
+follows `workflow.eta` WebSocket events, rendering remaining/finish/elapsed/nodes,
+the confidence color and the progress bar. Repeated clicks focus the same window.
+The clock button still launches the desktop companion via `/workflow/eta/open_panel`.
 
 ## Model-key rung in the fallback ladder (v0.2.30)
 

@@ -13,7 +13,8 @@ class LGraphNode {
     setDirtyCanvas() {}
 }
 const motionPreference = {matches:false,addEventListener(){}};
-const sandbox = { AbortController, matchMedia:()=>motionPreference, document: {hidden:false,addEventListener(){}}, app, api, LGraphNode, LiteGraph: { registerNodeType(n, C) { NodeType = C; } }, console, Date };
+const openedWindows = [];
+const sandbox = { AbortController, window: { open: (url, name, feats) => { openedWindows.push([url, name, feats]); } }, matchMedia:()=>motionPreference, document: {hidden:false,addEventListener(){}}, app, api, LGraphNode, LiteGraph: { registerNodeType(n, C) { NodeType = C; } }, console, Date };
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(__dirname + "/js/workflow_eta.js", "utf8").replace(/^import .*;\n/gm, ""), sandbox);
 NodeType = class extends LGraphNode {};
@@ -29,7 +30,7 @@ const cardRects = [];
 const gradients = [];
 const ctx = { scale(x,y){ transforms.push([x,y]); }, save(){}, restore(){}, beginPath(){}, rect(){}, clip(){},
     fillRect(x,y,w,h){ cardRects.push([this.fillStyle,this.globalAlpha,x,y,w,h]); },
-    moveTo(){},lineTo(){},closePath(){},fill(){},arc(){},stroke(){},
+    moveTo(){},lineTo(){},closePath(){},fill(){},stroke(){},strokeRect(){},arc(){},arc(){},stroke(){},
     createLinearGradient(x0,y0,x1,y1){ const g={stops:[],addColorStop(o,c){g.stops.push([o,c]);}}; gradients.push([x0,y0,x1,y1,g.stops]); return g; },
     fillText(t){ labels.push(t); }, measureText(t){ return { width: t.length * 6 }; } };
 const emit = (name, detail) => handlers[name]({detail});
@@ -76,6 +77,12 @@ labels.length=0;
 emit("workflow.eta", {state:"running", remaining:65, elapsed:3, confidence:"estimated", fraction:.05, nodes_done:2, nodes_total:8});
 node.onDrawForeground(ctx);
 assert(labels.includes("≈ 1m 5s") && !labels.some(l=>l.includes("–")), "full estimate stays a point value");
+openedWindows.length = 0;
+node.onMouseDown({button:0}, [node.size[0] - 96, 22]);
+assert(openedWindows.length === 1 && openedWindows[0][0] === "/workflow/eta/panel" && openedWindows[0][1] === "workflow-eta-panel", "browser panel button opens /workflow/eta/panel: " + JSON.stringify(openedWindows));
+openedWindows.length = 0;
+node.onMouseDown({button:0}, [node.size[0] - 64, 22]);
+assert(openedWindows.length === 0, "clock button must not open the browser panel");
 node.onResize([100,100]);
 // Scale presets resize the panel and persist through properties/configuration.
 const menu = [];

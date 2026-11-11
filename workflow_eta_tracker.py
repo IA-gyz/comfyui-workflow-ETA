@@ -2040,6 +2040,65 @@ class WorkflowETATracker:
                 self._log(f"push loop error: {e!r}")
 
 
+
+
+WORKFLOW_ETA_PANEL_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Workflow ETA</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+ body{margin:0;background:#15232e;color:#c8d6df;font:14px system-ui,sans-serif;display:flex;flex-direction:column;min-height:100vh}
+ header{padding:10px 16px;background:#243b4c;color:#f1f7fa;font-weight:600;display:flex;justify-content:space-between}
+ main{padding:20px;display:flex;flex-direction:column;gap:14px}
+ .big{font-size:44px;font-weight:700;color:#f1f7fa}
+ .muted{color:#8ca5b5}
+ .card{background:#304552;border-radius:10px;padding:14px 16px}
+ .bar{height:10px;background:#304552;border-radius:5px;overflow:hidden}
+ .bar>div{height:100%;background:#67d5bf;width:0%}
+ .row{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+ #conf{font-weight:600}
+</style></head><body>
+<header><span>Workflow ETA</span><span id="state">—</span></header>
+<main>
+ <div class="card"><div class="muted" id="label">Estimated remaining time</div><div class="big" id="main">—</div></div>
+ <div class="card row"><span>Finish <b id="finish">—</b></span><span>Elapsed <b id="elapsed">—</b></span></div>
+ <div class="card row"><span id="nodes">No connections required</span><span id="cold"></span></div>
+ <div class="card"><div class="row"><span id="conf" class="muted">—</span><span id="msg" class="muted"></span></div>
+ <div class="bar" style="margin-top:8px"><div id="fill"></div></div></div>
+</main>
+<script>
+const CONF=["#e5484d","#f76b15","#ffd43b","#9ce09c","#1a9e4b"];
+function fmt(s){if(!Number.isFinite(s))return "—";s=Math.max(0,Math.round(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),r=s%60;
+ return (h?h+"h ":"")+(m?m+"m ":"")+r+"s";}
+function confLevel(p){if(p.confidence==="lower-bound"||p.lower_bound)return 0;
+ if(p.confidence==="estimated"){if(p.runtime_scaling&&p.runtime_scaling.tier==="runtime-video-provisional"||p.workload_approximate)return 1;return 2;}
+ const t=p.tiers||{};const strong=["node-exact","exact","runtime-exact"].some(k=>t[k]>0);
+ const weak=["class","node-class","step-scaled","runtime-video-provisional","machine-unmatched"].some(k=>t[k]>0);
+ return strong&&!weak?4:3;}
+function render(p){if(!p)return;
+ const st=p.state||"idle";document.getElementById("state").textContent=st;
+ const el=document.getElementById;const running=st==="running",done=st==="done";
+ el("label").textContent=done?"Total duration":p.lower_bound?"Known-time subtotal · missing work excluded":"Estimated remaining time";
+ let main;if(!running&&!done)main="—";else if(done)main=fmt(p.elapsed);
+ else if(p.lower_bound&&Number.isFinite(p.low)&&Number.isFinite(p.high)&&p.high>p.low)main="≥ "+fmt(p.low)+" … "+fmt(p.high);
+ else main=(p.lower_bound?"Known ≥ ":"≈ ")+fmt(p.remaining);
+ el("main").textContent=main;
+ el("finish").textContent=running&&Number.isFinite(p.finish_ts)?new Date(p.finish_ts*1000).toLocaleTimeString():"—";
+ el("elapsed").textContent=fmt(p.elapsed);
+ el("nodes").textContent=(running||done)?((p.nodes_done||0)+" / "+(p.nodes_total||0)+" nodes · "+(p.nodes_cached||0)+" cached"):"No connections required";
+ el("cold").textContent=running?(p.cold?"Cold start":"Warm start"):"";
+ const c=confLevel(p);el("conf").textContent=st==="idle"?"":["Partial estimate · incomplete history","Estimated · provisional","Estimated","Learned · some weak tiers","Learned from history"][c];
+ el("conf").style.color=CONF[c];
+ el("msg").textContent=(p.eta_detail&&p.eta_detail.timing_message)||"";
+ el("fill").style.width=Math.round(100*Math.max(0,Math.min(1,p.fraction||0)))+"%";
+ el("fill").style.background=CONF[c];}
+async function boot(){try{render(await (await fetch("/workflow/eta/status")).json());}catch(e){}
+ const proto=location.protocol==="https:"?"wss://":"ws://";
+ const ws=new WebSocket(proto+location.host+"/ws");
+ ws.onmessage=e=>{try{const m=JSON.parse(e.data);if(m.type==="workflow.eta")render(m.data);}catch(err){}};
+ ws.onclose=()=>setTimeout(boot,2000);}
+boot();
+</script></body></html>"""
+
 # ------------------------------------------------------------------ desktop panel launcher
 def _workflow_eta_panel_command(data_home):
     """Return (argv, None) that opens/activates the installed Workflow ETA Panel, or (None, reason).
@@ -2085,6 +2144,11 @@ def install_workflow_eta():
     async def workflow_eta_status(request):
         with tracker.lock:
             return web.json_response(tracker.status_snapshot(), headers={"Cache-Control": "no-store"})
+
+    @PromptServer.instance.routes.get("/workflow/eta/panel")
+    async def workflow_eta_panel_page(request):
+        return web.Response(text=WORKFLOW_ETA_PANEL_HTML, content_type="text/html",
+                            headers={"Cache-Control": "no-store"})
 
     @PromptServer.instance.routes.post("/workflow/eta/open_panel")
     async def workflow_eta_open_panel(request):
