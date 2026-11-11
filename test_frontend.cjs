@@ -66,6 +66,15 @@ expectCard({state:"running", remaining:65, elapsed:3, confidence:"learned", tier
 labels.length=0; node.onDrawForeground(ctx);
 assert(labels.includes("ETA") && labels.includes("confidence") && labels.includes("+") && labels.includes("\u2212"), "gradient strip labels: "+labels.slice(-6));
 assert(gradients.some(g => g[0]===12 && g[1]===158 && g[2]===12 && g[3]===258 && g[4][0][0]===0 && g[4][0][1]==="#1a9e4b" && g[4][1][0]===1 && g[4][1][1]==="#e5484d"), "vertical green-top gradient: "+JSON.stringify(gradients.map(g=>g.slice(0,4))));
+labels.length=0;
+emit("workflow.eta", {state:"running", remaining:150, low:100, high:200, lower_bound:true, elapsed:5, confidence:"lower-bound", fraction:.1, nodes_done:1, nodes_total:5, eta_detail:{unpriced_nodes:[{node:"9",class:"Magik.H3ReferenceToVideo"}], provisional_remaining:150}});
+node.onDrawForeground(ctx);
+assert(labels.includes("Known ≥ 1m 40s"), "lower-bound top label: "+labels.filter(l=>l.includes("Known")));
+assert(labels.includes("≈ 1m 40s – 3m 20s"), "provisional range in card: "+labels.filter(l=>l.includes("–")));
+labels.length=0;
+emit("workflow.eta", {state:"running", remaining:65, elapsed:3, confidence:"estimated", fraction:.05, nodes_done:2, nodes_total:8});
+node.onDrawForeground(ctx);
+assert(labels.includes("≈ 1m 5s") && !labels.some(l=>l.includes("–")), "full estimate stays a point value");
 node.onResize([100,100]);
 // Scale presets resize the panel and persist through properties/configuration.
 const menu = [];
@@ -284,7 +293,7 @@ console.log("PASS: watched table, collapse/resize, changed filter, searchable in
 const explained=new NodeType();explained.onNodeCreated();explained.onAdded();
 emit("workflow.eta",{state:"running",remaining:0,elapsed:231,confidence:"lower-bound",lower_bound:true,finish_ts:Date.now()/1000,eta_detail:{known_remaining:0,provisional_remaining:1616,timing_message:"First step done; regular speed still unknown",coverage_message:"1 nodes still have no duration",unpriced_nodes:[{node:"d",class:"VAEDecode"}],provisional_notes:["First-step guess includes startup; may be high"],graph_incomplete:false}});
 labels.length=0;explained.onDrawForeground(ctx);
-assert(labels.includes("Known ≈ 0 s"));
+assert(labels.includes("Known ≥ 0 s"));
 assert(labels.some(t=>t.includes("Provisional full remaining estimate")));
 assert(labels.some(t=>t.includes("1 nodes unpriced")));
 assert(labels.some(t=>t.includes("First-step guess includes startup")));

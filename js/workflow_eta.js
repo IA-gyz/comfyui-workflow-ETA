@@ -625,7 +625,7 @@ app.registerExtension({
                 const remaining = Number.isFinite(p.remaining) ? p.remaining : null;
                 const main = !connected ? "—" : done ? formatWorkflowDuration(p.elapsed) :
                     abort ? "Stopped" : running ? remaining === null || (remaining === 0 && !p.eta_detail) ? "Estimating…" :
-                    (p.lower_bound ? "Known ≈ " : "≈ ") + formatWorkflowDuration(remaining) : "—";
+                    (p.lower_bound ? "Known ≥ " : "≈ ") + formatWorkflowDuration(p.lower_bound && Number.isFinite(p.low) ? p.low : remaining) : "—";
                 text(main, 18, 76, "bold 30px sans-serif", completedDurationColor);
                 text(done ? "Total duration" : p.lower_bound ? "Known-time subtotal · missing work excluded" : "Estimated remaining time", 18, 98, "12px sans-serif", theme.muted);
                 const finish = connected && running && remaining > 0 && Number.isFinite(p.finish_ts) ?
@@ -655,9 +655,11 @@ app.registerExtension({
                 text("\u2212",42,250,"bold 14px sans-serif","#10181c");
                 ctx.textAlign="left";
                 const full=running ? (detail?(Number.isFinite(detail.provisional_remaining)?detail.provisional_remaining:null):remaining) : done?p.elapsed:null;
+                const fullRange=running && p.lower_bound && Number.isFinite(p.low) && Number.isFinite(p.high) && p.high>p.low
+                    ? "≈ "+formatWorkflowDuration(p.low)+" – "+formatWorkflowDuration(p.high) : null;
                 const fullLabel=done?"Actual total duration":running?(p.lower_bound?"Provisional full remaining estimate":"Full remaining estimate"):"Full remaining estimate";
                 text(fullLabel,84,181,"bold 17px sans-serif",theme.strong);
-                text(!connected?"Disconnected":Number.isFinite(full)?(done?"":"≈ ")+formatWorkflowDuration(full):running?"Waiting for timing…":"—",84,221,"bold 38px sans-serif",completedDurationColor);
+                text(!connected?"Disconnected":fullRange?fullRange:Number.isFinite(full)?(done?"":"≈ ")+formatWorkflowDuration(full):running?"Waiting for timing…":"—",84,221,"bold 38px sans-serif",completedDurationColor);
                 const omitted=detail?.unpriced_nodes?.length||0;
                 const caveat=omitted?omitted+" nodes unpriced · "+(detail.provisional_notes?.[0]||"Their duration is excluded"):
                     detail?.graph_incomplete?"Graph incomplete; additional work may be missing":detail?.provisional_notes?.[0]||

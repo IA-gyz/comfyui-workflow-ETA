@@ -534,6 +534,13 @@ are not guaranteed confidence limits. Live remaining time stays on the main time
 The v0.2.22 replay results remain historical validation of the prediction engine;
 this release improves its inspection and records, not its timing model.
 
+## Provisional totals shown as ranges (v0.2.28)
+
+When nodes are unpriced or the graph is incomplete (lower-bound estimate), the top
+remaining line reads "Known ≥ <low>" and the main timer card shows the known
+interval as a range ("≈ low – high") instead of a single point, alongside the
+existing "N nodes unpriced" caveat. Fully priced runs still show a point estimate.
+
 ## sampler_runs restricted to sampler classes (v0.2.27)
 
 Step-family timing is now recorded only for KSampler, KSamplerAdvanced,
