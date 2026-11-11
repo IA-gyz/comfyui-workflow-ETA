@@ -17,9 +17,9 @@ import types
 import uuid
 
 try:
-    from .workflow_eta_history import WorkflowETAHistory, make_workflow_eta_signature
+    from .workflow_eta_history import WorkflowETAHistory, make_workflow_eta_signature, make_workflow_eta_graph_signature
 except ImportError:  # standalone testing
-    from workflow_eta_history import WorkflowETAHistory, make_workflow_eta_signature
+    from workflow_eta_history import WorkflowETAHistory, make_workflow_eta_signature, make_workflow_eta_graph_signature
 
 VERBOSE = os.environ.get("WORKFLOW_ETA_VERBOSE", "1") != "0"
 PUSH_EVENT = "workflow.eta"
@@ -1674,6 +1674,8 @@ class WorkflowETATracker:
             if shape.get("frame_count_estimated"):
                 self._log(f"node {nid}: frame count estimated from duration/FPS; approximate calibration kept separate from exact frame counts")
         run.cold_pred = any(run.node_cold.get(nid, False) for nid in run.todo)
+        run.graph_sig = make_workflow_eta_graph_signature(run.graph, run.model_map, workloads)
+        run.graph_pred = self.hist.predict_run(run.graph_sig, run.cold_pred, self.device)
         run.watch_rows = _workflow_eta_watch_rows(run,workloads,self.device)
         run.watch_baseline = self.watch_baseline
 
@@ -1772,15 +1774,25 @@ class WorkflowETATracker:
             tiers[pred["tier"]] = tiers.get(pred["tier"], 0) + 1
             if pred["tier"] in _WEAK_TIERS or nid in run.workload_unknown:
                 weak += pred["seconds"]
-        if unknown or run.approximate:
+        elapsed = now - run.t0
+        graph_pred = getattr(run, "graph_pred", None)
+        lower_bound = bool(unknown or run.approximate)
+        if (graph_pred and graph_pred.get("seconds") is not None and not run.done
+                and not run.approximate):
+            # Whole-run prior while nothing has finished yet; per-node sum takes over after.
+            remaining = max(0.0, graph_pred["seconds"] - elapsed)
+            low = max(0.0, (graph_pred.get("low") or graph_pred["seconds"]) - elapsed)
+            high = max(0.0, (graph_pred.get("high") or graph_pred["seconds"]) - elapsed)
+            tiers[graph_pred.get("tier", "run-exact")] = 1
+            lower_bound = False
+        if lower_bound:
             confidence = "lower-bound"
         elif unresolved_workload or (remaining > 0 and weak / remaining > 0.2):
             confidence = "estimated"
         else:
             confidence = "learned"
-        elapsed = now - run.t0
         return {
-            "remaining": remaining, "low": low, "high": high, "lower_bound": bool(unknown or run.approximate),
+            "remaining": remaining, "low": low, "high": high, "lower_bound": lower_bound,
             "confidence": confidence, "tiers": tiers, "elapsed": elapsed,
             "fraction": elapsed / (elapsed + remaining) if elapsed + remaining > 0 else 0.0,
         }
@@ -1904,7 +1916,7 @@ class WorkflowETATracker:
                    for rec in run.done if rec["meta"]]
         self.hist.record_completed_run(records, run.prompt_id, total,
                                        len(run.done), len(run.cached), cold, self.device,
-                                       pressure=getattr(run,"pressure",None))
+                                       pressure=getattr(run,"pressure",None), graph_sig=getattr(run,"graph_sig",None))
         self.last_summary = {"initial": run.initial, "actual": total, "cold": cold}
         init = f"{run.initial:.1f}s" if run.initial is not None else "n/a"
         n_cold = sum(bool(run.node_cold.get(rec["node"])) for rec in run.done if rec["meta"])
@@ -2071,7 +2083,7 @@ function fmt(s){if(!Number.isFinite(s))return "—";s=Math.max(0,Math.round(s));
  return (h?h+"h ":"")+(m?m+"m ":"")+r+"s";}
 function confLevel(p){if(p.confidence==="lower-bound"||p.lower_bound)return 0;
  if(p.confidence==="estimated"){if(p.runtime_scaling&&p.runtime_scaling.tier==="runtime-video-provisional"||p.workload_approximate)return 1;return 2;}
- const t=p.tiers||{};const strong=["node-exact","exact","runtime-exact"].some(k=>t[k]>0);
+ const t=p.tiers||{};const strong=["node-exact","exact","runtime-exact","run-exact","run-few"].some(k=>t[k]>0);
  const weak=["class","node-class","step-scaled","runtime-video-provisional","machine-unmatched"].some(k=>t[k]>0);
  return strong&&!weak?4:3;}
 function render(p){if(!p)return;

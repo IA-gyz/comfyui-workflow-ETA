@@ -1,7 +1,7 @@
-# Workflow ETA v0.2.32
+# Workflow ETA v0.2.33
 
 This release includes the latest dimension detection, seven themes, eight
-progress-bar styles and the previous ETA reliability fixes. The package version is v0.2.32.
+progress-bar styles and the previous ETA reliability fixes. The package version is v0.2.33.
 
 Automatic timing history and a live display for ComfyUI workflows.
 
@@ -536,6 +536,16 @@ included in diagnostic node summaries. Estimated ranges remain provisional; they
 are not guaranteed confidence limits. Live remaining time stays on the main timer.
 The v0.2.22 replay results remain historical validation of the prediction engine;
 this release improves its inspection and records, not its timing model.
+
+## Whole-graph ETA prior (v0.2.33)
+
+Each run gets a graph-level signature (node classes + meaningful literal inputs +
+model lineage + a coarse workload summary: width/height/frames/reference-image dims).
+Seeds, node ids, file paths and cosmetic strings (titles, prompts, counters) are
+excluded, so re-running the same workflow with different assets still matches. The
+`runs` table stores graph_sig + device (schema 11). While no node has finished yet,
+a matching whole-run prior (tiers run-exact / run-few) drives the remaining ETA;
+once the first node completes, the per-node sum takes over.
 
 ## Confidence color ladder (v0.2.32)
 

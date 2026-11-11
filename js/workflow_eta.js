@@ -2,7 +2,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 const WORKFLOW_CONFIDENCE_COLORS = ["#e5484d", "#f76b15", "#ffd43b", "#9ce09c", "#1a9e4b"];
-const WORKFLOW_STRONG_TIERS = ["node-exact", "exact", "runtime-exact"];
+const WORKFLOW_STRONG_TIERS = ["node-exact", "exact", "runtime-exact", "run-exact", "run-few"];
 const WORKFLOW_WEAK_TIERS = ["class", "other-state", "class-other-state", "node-other-state", "node-class",
     "machine-unmatched", "runtime-media-profile", "runtime-video-profile", "runtime-video-provisional",
     "runtime-few", "runtime-profile", "step-scaled", "resolution-learned", "batch-learned", "frames-learned",

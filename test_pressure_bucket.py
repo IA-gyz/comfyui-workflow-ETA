@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from workflow_eta_history import WorkflowETAHistory, SCHEMA_VERSION
 from workflow_eta_tracker import _workflow_eta_pressure_bucket
 
-assert SCHEMA_VERSION == 10
+assert SCHEMA_VERSION == 11
 
 # bucket mapping
 assert _workflow_eta_pressure_bucket(None) is None
@@ -56,7 +56,7 @@ if Path(src).exists():
     h = WorkflowETAHistory(dst)
     after = h._db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
     cols = {r[1] for r in h._db.execute("PRAGMA table_info(node_runs)")}
-    assert before == "9" and after == "10" and "pressure" in cols, (before, after, cols)
+    assert before in ("9", "10") and after == "11" and "pressure" in cols, (before, after, cols)
     n = h._db.execute("SELECT COUNT(*) FROM node_runs").fetchone()[0]
     assert n > 29000 and h._db.execute("SELECT COUNT(*) FROM node_runs WHERE pressure IS NOT NULL").fetchone()[0] == 0
     p = h.predict_node("VAEDecode", h._db.execute("SELECT sig FROM node_runs WHERE class_type='VAEDecode' LIMIT 1").fetchone()[0],

@@ -7,6 +7,7 @@ responsible for never recording interrupted or failed runs.
 Thread-safe: ComfyUI's executor thread records, the server loop reads.
 """
 import hashlib
+import re
 import json
 import math
 import os
@@ -14,7 +15,7 @@ import sqlite3
 import threading
 import time
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # Inputs that never affect timing, or that change every run.
 _IGNORED_KEYS = {"seed", "noise_seed", "control_after_generate", "control_before_generate"}
@@ -50,6 +51,49 @@ def make_workflow_eta_signature(class_type, inputs, lineage=(), workload=()):
     return sig, "|".join(sorted(set(models)))
 
 
+_GRAPH_COSMETIC_KEY = re.compile(r"title|name|label|comment|^text$|prompt|output_\d+|filename|filepath|path$", re.I)
+_GRAPH_MEDIA_EXT = _MODEL_EXTS + (".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov", ".mkv", ".webm")
+_GRAPH_CTRL_KEYS = ("width", "height", "batch", "frames", "duration", "effective_generated_frames", "source_reference_images")
+
+
+def make_workflow_eta_graph_signature(graph, model_map=None, workloads=None):
+    """Whole-graph signature for run-level ETA: classes + meaningful literals + models + workload summary.
+
+    Node ids, seeds, file paths and cosmetic strings (titles, names, prompts,
+    counters) are excluded so re-running a workflow with different assets matches;
+    shape/frames/reference-image dimensions are kept via the workload summary.
+    """
+    parts = []
+    for nid in graph:
+        node = graph.get(nid) or {}
+        literals = {}
+        for key in sorted((node.get("inputs") or {})):
+            if key in _IGNORED_KEYS or _GRAPH_COSMETIC_KEY.search(key):
+                continue
+            value = (node.get("inputs") or {})[key]
+            if isinstance(value, (list, tuple, dict)):
+                continue
+            if isinstance(value, str) and (len(value) > _MAX_LITERAL_LEN or "/" in value or value.lower().endswith(_GRAPH_MEDIA_EXT)):
+                continue
+            literals[key] = value
+        models = sorted(set((model_map or {}).get(nid, ())))
+        ctrl = {}
+        for token in (workloads or {}).get(nid, ([], False))[0]:
+            for k, v in token[2].items():
+                if k == "unresolved_source" or k not in _GRAPH_CTRL_KEYS and not k.startswith("source_"):
+                    continue
+                if isinstance(v, dict):
+                    if k == "source_reference_images":
+                        ctrl[k] = v
+                    elif k.startswith("source_"):
+                        ctrl[k] = {kk: vv for kk, vv in v.items() if kk in ("width", "height", "frames", "fps", "exact_frames", "uncertain_frames")}
+                elif not isinstance(v, list):
+                    ctrl[k] = v
+        parts.append([node.get("class_type", ""), literals, models, ctrl])
+    blob = json.dumps(sorted(parts, key=lambda p: json.dumps(p, sort_keys=True, default=str)), sort_keys=True, default=str)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]
+
+
 def _workflow_eta_weighted_quantile(values_newest_first, q, half_life):
     """Recency-weighted quantile. Sample i (0 = newest) has weight 0.5**(i/half_life)."""
     pairs = sorted(
@@ -83,6 +127,8 @@ _INTERVAL_TIERS = {
     "class-other-state": (0.01, 0.99, 0.75),
     "model": (0.05, 0.95, 0.35),
     "model-few": (0.05, 0.95, 0.45),
+    "run-exact": (0.05, 0.95, 0.20),
+    "run-few": (0.05, 0.95, 0.30),
 }
 
 
@@ -139,7 +185,7 @@ class WorkflowETAHistory:
                 CREATE INDEX IF NOT EXISTS ix_runtime_profile ON runtime_runs(class_type,static_sig,node_id,device,cold,id);
                 CREATE TABLE IF NOT EXISTS runs (
                     id INTEGER PRIMARY KEY, ts REAL, prompt_id TEXT, duration REAL,
-                    n_nodes INTEGER, n_cached INTEGER, cold INTEGER);
+                    n_nodes INTEGER, n_cached INTEGER, cold INTEGER, graph_sig TEXT, device TEXT);
                 """
             )
             runtime_columns={row[1] for row in self._db.execute("PRAGMA table_info(runtime_runs)")}
@@ -148,6 +194,11 @@ class WorkflowETAHistory:
                 if name not in runtime_columns:self._db.execute(f"ALTER TABLE runtime_runs ADD COLUMN {name} {definition}")
             self._db.execute("CREATE INDEX IF NOT EXISTS ix_runtime_scaling ON runtime_runs(class_type,family,node_id,device,cold,id)")
             self._db.execute("CREATE INDEX IF NOT EXISTS ix_runtime_frame_context ON runtime_runs(class_type,frame_key,node_id,device,cold,id)")
+            runs_columns = {row[1] for row in self._db.execute("PRAGMA table_info(runs)")}
+            for name, definition in (("graph_sig", "TEXT"), ("device", "TEXT")):
+                if name not in runs_columns:
+                    self._db.execute(f"ALTER TABLE runs ADD COLUMN {name} {definition}")
+            self._db.execute("CREATE INDEX IF NOT EXISTS ix_runs_graph ON runs (graph_sig, cold, device, id)")
             for table in ("node_runs", "sampler_runs"):
                 columns = {row[1] for row in self._db.execute(f"PRAGMA table_info({table})")}
                 if "node_id" not in columns:
@@ -198,15 +249,30 @@ class WorkflowETAHistory:
              float(t_first), float(step_time), work, None if node_id is None else str(node_id)),
         )
 
-    def record_run(self, prompt_id, duration, n_nodes, n_cached, cold):
+    def record_run(self, prompt_id, duration, n_nodes, n_cached, cold, graph_sig=None, device=""):
         if not _workflow_eta_valid(duration):
             return
         self._insert(
-            "INSERT INTO runs (ts, prompt_id, duration, n_nodes, n_cached, cold) VALUES (?,?,?,?,?,?)",
-            (time.time(), prompt_id, float(duration), int(n_nodes), int(n_cached), int(bool(cold))),
+            "INSERT INTO runs (ts, prompt_id, duration, n_nodes, n_cached, cold, graph_sig, device) VALUES (?,?,?,?,?,?,?,?)",
+            (time.time(), prompt_id, float(duration), int(n_nodes), int(n_cached), int(bool(cold)), graph_sig, device),
         )
 
-    def record_completed_run(self, records, prompt_id, duration, n_nodes, n_cached, cold, device="", pressure=None):
+    def predict_run(self, graph_sig, cold, device=""):
+        """Whole-run prior from previous runs of the same graph signature."""
+        if not graph_sig:
+            return None
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT duration FROM runs WHERE graph_sig=? AND cold=? AND device=? ORDER BY id DESC LIMIT 30",
+                (graph_sig, int(bool(cold)), device)).fetchall()
+        values = [r[0] for r in rows if _workflow_eta_valid(r[0])]
+        if not values:
+            return None
+        tier = "run-exact" if len(values) >= 3 else "run-few"
+        seconds, low, high = _workflow_eta_interval(values, tier, self.HALF_LIFE)
+        return {"seconds": seconds, "low": low, "high": high, "n": len(values), "tier": tier}
+
+    def record_completed_run(self, records, prompt_id, duration, n_nodes, n_cached, cold, device="", pressure=None, graph_sig=None):
         """Atomically save all measurements for a successful run."""
         stamp = time.time()
         node_rows, sampler_rows = [], []
@@ -255,8 +321,8 @@ class WorkflowETAHistory:
                              sampler[1],sampler[2],rec.get('runtime_tail',0.),plan.get('frame_key'),plan.get('effective_frames'),runtime_row))
             if _workflow_eta_valid(duration):
                 self._db.execute(
-                    "INSERT INTO runs (ts,prompt_id,duration,n_nodes,n_cached,cold) VALUES (?,?,?,?,?,?)",
-                    (stamp, prompt_id, duration, n_nodes, n_cached, int(bool(cold))))
+                    "INSERT INTO runs (ts,prompt_id,duration,n_nodes,n_cached,cold,graph_sig,device) VALUES (?,?,?,?,?,?,?,?)",
+                    (stamp, prompt_id, duration, n_nodes, n_cached, int(bool(cold)), graph_sig, device))
             self._since_prune += len(node_rows) + len(sampler_rows) + 1
             if self._since_prune >= 200:
                 self._prune_locked()
