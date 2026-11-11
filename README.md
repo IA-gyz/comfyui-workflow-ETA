@@ -534,6 +534,15 @@ are not guaranteed confidence limits. Live remaining time stays on the main time
 The v0.2.22 replay results remain historical validation of the prediction engine;
 this release improves its inspection and records, not its timing model.
 
+## Uncertain video length downgrades exact tiers (v0.2.26)
+
+If any upstream video loader's frame count is missing or only estimated at run start,
+the workload signature cannot be trusted to separate temporal lengths. Exact/few
+predictions for such nodes are downgraded one tier (node-exact -> node-few, exact ->
+few, wider intervals) and marked approximate, and the node counts as unresolved
+workload for the run-level confidence label. Runs with fully resolved video headers
+are unaffected.
+
 ## Offload-pressure bucket in exact matching (v0.2.25)
 
 The boolean cold flag under-represented how much model weight was offloaded at run

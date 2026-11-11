@@ -331,6 +331,23 @@ def _workflow_eta_reference_family(run,nid,owner,frames,workloads):
     return {"video_sig":family,"reference_frames":reference_frames}
 
 
+def _workflow_eta_uncertain_video_upstream(run, nid):
+    """True when an upstream video loader's frame count is missing or only estimated,
+    so the workload signature cannot be trusted to separate temporal lengths."""
+    seen=set();stack=[nid]
+    while stack:
+        current=stack.pop()
+        if current in seen:continue
+        seen.add(current)
+        node=run.graph.get(current) or {}
+        if _workflow_eta_video_adapter(node):
+            loaded=_workflow_eta_loaded_video_info(run.graph,current,getattr(run,"video_sources",None) or {})
+            if not loaded or not loaded.get("exact_frames") or not loaded.get("frames"):
+                return True
+        stack.extend(str(v[0]) for v in (node.get("inputs") or {}).values() if _workflow_eta_is_link(v))
+    return False
+
+
 def _workflow_eta_rate(value):
     try:
         from fractions import Fraction
@@ -1608,6 +1625,9 @@ class WorkflowETATracker:
                     prediction={"seconds":None,"low":None,"high":None,"n":0,"tier":"none"}
                 if run.shape_plans.get(nid,{}).get("frame_count_estimated"):
                     prediction["approximate"]=True
+                if prediction["tier"] in ("node-exact","exact","node-few","few") and _workflow_eta_uncertain_video_upstream(run,nid):
+                    prediction=dict(prediction, tier={"node-exact":"node-few","exact":"few"}.get(prediction["tier"],prediction["tier"]), approximate=True)
+                    run.workload_unknown.add(nid)
                 frame_key=self._runtime_video_context(run,nid)
                 shape=run.shape_plans.get(nid,{})
                 steps=run.step_plans.get(nid,{}).get('steps')
