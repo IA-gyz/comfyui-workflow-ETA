@@ -1,7 +1,7 @@
-# Workflow ETA v0.2.24
+# Workflow ETA v0.2.30
 
 This release includes the latest dimension detection, seven themes, eight
-progress-bar styles and the previous ETA reliability fixes. The package version is v0.2.24.
+progress-bar styles and the previous ETA reliability fixes. The package version is v0.2.30.
 
 Automatic timing history and a live display for ComfyUI workflows.
 
