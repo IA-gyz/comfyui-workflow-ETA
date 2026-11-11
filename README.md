@@ -534,6 +534,16 @@ are not guaranteed confidence limits. Live remaining time stays on the main time
 The v0.2.22 replay results remain historical validation of the prediction engine;
 this release improves its inspection and records, not its timing model.
 
+## Offload-pressure bucket in exact matching (v0.2.25)
+
+The boolean cold flag under-represented how much model weight was offloaded at run
+start; exact-history predictions on heavily offloaded runs underestimated by ~1.4x.
+The machine snapshot at run start is now bucketed into a pressure value (0 = <1 GB
+offloaded, 1 = 1-5 GB, 2 = >=5 GB) and stored per row in node_runs/sampler_runs
+(schema 10; old rows keep NULL and still match). Exact/few and step-scaled lookups
+prefer rows with the same pressure bucket. Predictions made without machine telemetry
+behave exactly as before.
+
 ## Memory and lifecycle audit (v0.2.24)
 
 Diagnostic exports now snapshot to temporary files, stream summary parsing, bound

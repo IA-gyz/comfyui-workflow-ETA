@@ -910,6 +910,17 @@ def _workflow_eta_device_name():
     except Exception:
         return ""
 
+def _workflow_eta_pressure_bucket(machine):
+    """Coarse offload-pressure bucket from a machine snapshot: 0 <1GB, 1 = 1-5GB, 2 >=5GB offloaded."""
+    if not isinstance(machine, dict):
+        return None
+    offloaded = sum(m.get("offloaded_bytes", 0) for m in machine.get("models", []) if isinstance(m, dict))
+    if offloaded <= 0:
+        return 0
+    if offloaded < 5e9:
+        return 1
+    return 2
+
 
 # ------------------------------------------------------------------ tracker
 class WorkflowETATracker:
@@ -1418,6 +1429,7 @@ class WorkflowETATracker:
             prompt_id=pid, t0=self.clock(), start_ts=self.wall(), graph=graph or {}, outputs=outputs, cold_pred=not resident, runtime={}, value_dependencies=set(), runtime_machine={}, model_management={}, model_management_first={},
             resident0=resident, reach=set(), cached=set(), todo=set(), meta={}, preds={},
             node_cold={}, done=[], cur=None, samples=deque(maxlen=4096), initial=None, approximate=not graph,
+            pressure=None,
         )
         run.reach = _workflow_eta_reachable(run.graph, outputs) if graph else set()
         roots=[str(value[0]) for node in run.graph.values() for key,value in (node.get('inputs') or {}).items()
@@ -1425,6 +1437,7 @@ class WorkflowETATracker:
         run.value_dependencies=_workflow_eta_reachable(run.graph,roots) if roots else set()
         run.todo = set(run.reach)
         if getattr(self,"machine_fn",None):run.machine_start=self._machine_snapshot()
+        run.pressure=_workflow_eta_pressure_bucket(getattr(run,"machine_start",None))
         self.run = run
         self._prepare(run)
         self._diagnostic("start",{},run)
@@ -1574,10 +1587,10 @@ class WorkflowETATracker:
         for nid in run.todo:
             meta = run.meta.get(nid)
             if meta:
-                prediction = self.hist.predict_node(meta[0], meta[1], run.node_cold[nid], self.device, node_id=nid)
+                prediction = self.hist.predict_node(meta[0], meta[1], run.node_cold[nid], self.device, node_id=nid, pressure=getattr(run,"pressure",None))
                 if nid in run.step_plans and prediction["tier"] not in ("node-exact", "node-few", "exact", "few"):
                     plan = run.step_plans[nid]
-                    scaled = self.hist.predict_sampler_steps(meta[0], plan["step_sig"], plan["steps"], run.node_cold[nid], self.device, nid)
+                    scaled = self.hist.predict_sampler_steps(meta[0], plan["step_sig"], plan["steps"], run.node_cold[nid], self.device, nid, pressure=getattr(run,"pressure",None))
                     if scaled is not None:
                         prediction = scaled
                 if (nid in run.shape_plans and prediction["tier"] not in
@@ -1847,7 +1860,8 @@ class WorkflowETATracker:
         records = [dict(rec, cold=run.node_cold.get(rec["node"], False))
                    for rec in run.done if rec["meta"]]
         self.hist.record_completed_run(records, run.prompt_id, total,
-                                       len(run.done), len(run.cached), cold, self.device)
+                                       len(run.done), len(run.cached), cold, self.device,
+                                       pressure=getattr(run,"pressure",None))
         self.last_summary = {"initial": run.initial, "actual": total, "cold": cold}
         init = f"{run.initial:.1f}s" if run.initial is not None else "n/a"
         n_cold = sum(bool(run.node_cold.get(rec["node"])) for rec in run.done if rec["meta"])

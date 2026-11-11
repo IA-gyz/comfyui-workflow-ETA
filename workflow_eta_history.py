@@ -14,7 +14,7 @@ import sqlite3
 import threading
 import time
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 # Inputs that never affect timing, or that change every run.
 _IGNORED_KEYS = {"seed", "noise_seed", "control_after_generate", "control_before_generate"}
@@ -118,11 +118,11 @@ class WorkflowETAHistory:
                 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
                 CREATE TABLE IF NOT EXISTS node_runs (
                     id INTEGER PRIMARY KEY, ts REAL, class_type TEXT, sig TEXT,
-                    model_key TEXT, device TEXT, cold INTEGER, duration REAL, work REAL);
+                    model_key TEXT, device TEXT, cold INTEGER, pressure INTEGER, duration REAL, work REAL);
                 CREATE INDEX IF NOT EXISTS ix_node ON node_runs (class_type, sig, cold, id);
                 CREATE TABLE IF NOT EXISTS sampler_runs (
                     id INTEGER PRIMARY KEY, ts REAL, class_type TEXT, sig TEXT,
-                    model_key TEXT, device TEXT, cold INTEGER, steps INTEGER,
+                    model_key TEXT, device TEXT, cold INTEGER, pressure INTEGER, steps INTEGER,
                     t_first REAL, step_time REAL, work REAL);
                 CREATE INDEX IF NOT EXISTS ix_sampler ON sampler_runs (class_type, sig, cold, id);
                 CREATE TABLE IF NOT EXISTS eta_errors (
@@ -150,9 +150,14 @@ class WorkflowETAHistory:
                 columns = {row[1] for row in self._db.execute(f"PRAGMA table_info({table})")}
                 if "node_id" not in columns:
                     self._db.execute(f"ALTER TABLE {table} ADD COLUMN node_id TEXT")
+                if "pressure" not in columns:
+                    self._db.execute(f"ALTER TABLE {table} ADD COLUMN pressure INTEGER")
                 self._db.execute(
                     f"CREATE INDEX IF NOT EXISTS ix_{table}_identity "
                     f"ON {table} (class_type, sig, node_id, device, cold, id)")
+                self._db.execute(
+                    f"CREATE INDEX IF NOT EXISTS ix_{table}_pressure "
+                    f"ON {table} (class_type, sig, node_id, device, cold, pressure, id)")
             sampler_columns = {row[1] for row in self._db.execute("PRAGMA table_info(sampler_runs)")}
             for name, definition in (("step_sig", "TEXT"), ("tail", "REAL DEFAULT 0"),
                                      ("resolution_sig", "TEXT"), ("batch_sig", "TEXT"),
@@ -171,23 +176,23 @@ class WorkflowETAHistory:
             )
 
     # --------------------------------------------------------------- writing
-    def record_node(self, class_type, sig, duration, cold, device="", model_key="", work=None, node_id=None):
+    def record_node(self, class_type, sig, duration, cold, device="", model_key="", work=None, node_id=None, pressure=None):
         if not _workflow_eta_valid(duration):
             return
         self._insert(
-            "INSERT INTO node_runs (ts, class_type, sig, model_key, device, cold, duration, work, node_id) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            (time.time(), class_type, sig, model_key, device, int(bool(cold)), float(duration), work, None if node_id is None else str(node_id)),
+            "INSERT INTO node_runs (ts, class_type, sig, model_key, device, cold, pressure, duration, work, node_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (time.time(), class_type, sig, model_key, device, int(bool(cold)), None if pressure is None else int(pressure), float(duration), work, None if node_id is None else str(node_id)),
         )
 
     def record_sampler(self, class_type, sig, steps, t_first, step_time, cold,
-                       device="", model_key="", work=None, node_id=None):
+                       device="", model_key="", work=None, node_id=None, pressure=None):
         if not (_workflow_eta_valid(t_first, allow_zero=True) and _workflow_eta_valid(step_time) and int(steps) >= 2):
             return
         self._insert(
-            "INSERT INTO sampler_runs (ts, class_type, sig, model_key, device, cold, steps, "
-            "t_first, step_time, work, node_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (time.time(), class_type, sig, model_key, device, int(bool(cold)), int(steps),
+            "INSERT INTO sampler_runs (ts, class_type, sig, model_key, device, cold, pressure, steps, "
+            "t_first, step_time, work, node_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (time.time(), class_type, sig, model_key, device, int(bool(cold)), None if pressure is None else int(pressure), int(steps),
              float(t_first), float(step_time), work, None if node_id is None else str(node_id)),
         )
 
@@ -199,7 +204,7 @@ class WorkflowETAHistory:
             (time.time(), prompt_id, float(duration), int(n_nodes), int(n_cached), int(bool(cold))),
         )
 
-    def record_completed_run(self, records, prompt_id, duration, n_nodes, n_cached, cold, device=""):
+    def record_completed_run(self, records, prompt_id, duration, n_nodes, n_cached, cold, device="", pressure=None):
         """Atomically save all measurements for a successful run."""
         stamp = time.time()
         node_rows, sampler_rows = [], []
@@ -208,7 +213,7 @@ class WorkflowETAHistory:
             state = int(bool(rec["cold"]))
             if _workflow_eta_valid(rec["duration"]):
                 node_rows.append((stamp, cls, sig, model_key, device, state,
-                                  rec["duration"], None, str(rec["node"])))
+                                  None if pressure is None else int(pressure), rec["duration"], None, str(rec["node"])))
             if rec["sampler"]:
                 steps, first, rate = rec["sampler"]
                 if (_workflow_eta_valid(first, allow_zero=True) and _workflow_eta_valid(rate)
@@ -216,15 +221,15 @@ class WorkflowETAHistory:
                         and steps >= 2 and int(steps) == steps):
                     shape = rec.get("shape_plan") or {}
                     sampler_rows.append((stamp, cls, sig, model_key, device, state,
-                                         int(steps), first, rate, None, str(rec["node"]), rec.get("step_sig"), rec.get("tail", 0.),
+                                         None if pressure is None else int(pressure), int(steps), first, rate, None, str(rec["node"]), rec.get("step_sig"), rec.get("tail", 0.),
                         shape.get("resolution_sig"),shape.get("batch_sig"),shape.get("width"),shape.get("height"),shape.get("batch"),shape.get("frames_sig"),shape.get("frames"),shape.get("video_sig"),shape.get("reference_frames")))
         with self._lock, self._db:
             self._db.executemany(
-                "INSERT INTO node_runs (ts,class_type,sig,model_key,device,cold,duration,work,node_id) "
-                "VALUES (?,?,?,?,?,?,?,?,?)", node_rows)
+                "INSERT INTO node_runs (ts,class_type,sig,model_key,device,cold,pressure,duration,work,node_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)", node_rows)
             self._db.executemany(
-                "INSERT INTO sampler_runs (ts,class_type,sig,model_key,device,cold,steps,t_first,step_time,work,node_id,step_sig,tail,resolution_sig,batch_sig,width,height,batch,frames_sig,frames,video_sig,reference_frames) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", sampler_rows)
+                "INSERT INTO sampler_runs (ts,class_type,sig,model_key,device,cold,pressure,steps,t_first,step_time,work,node_id,step_sig,tail,resolution_sig,batch_sig,width,height,batch,frames_sig,frames,video_sig,reference_frames) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", sampler_rows)
             for rec in records:
                 observation=rec.get('runtime')
                 if observation and _workflow_eta_valid(rec['duration']):
@@ -264,7 +269,7 @@ class WorkflowETAHistory:
                 self._prune_locked()
 
     # --------------------------------------------------------------- reading
-    def _rows(self, table, cols, class_type, sig, cold, device, limit=50, node_id=None):
+    def _rows(self, table, cols, class_type, sig, cold, device, limit=50, node_id=None, pressure=None):
         where = ["class_type = ?", "cold = ?"]
         params = [class_type, int(bool(cold))]
         if sig is not None:
@@ -273,6 +278,9 @@ class WorkflowETAHistory:
         if node_id is not None:
             where.append("node_id = ?")
             params.append(str(node_id))
+        if pressure is not None:
+            where.append("(pressure = ? OR pressure IS NULL)")
+            params.append(int(pressure))
         if device:
             where.append("device = ?")
             params.append(device)
@@ -281,7 +289,7 @@ class WorkflowETAHistory:
         with self._lock:
             return self._db.execute(sql, params).fetchall()
 
-    def _ladder(self, table, cols, class_type, sig, cold, device, node_id=None):
+    def _ladder(self, table, cols, class_type, sig, cold, device, node_id=None, pressure=None):
         """Pick the best available sample set. Returns (rows, tier)."""
         steps = []
         if node_id is not None:
@@ -298,7 +306,7 @@ class WorkflowETAHistory:
         steps.extend([(sig, not cold, None, "other-state", 1),
                       (None, not cold, None, "class-other-state", 1)])
         for s, c, identity, tier, minimum in steps:
-            rows = self._rows(table, cols, class_type, s, c, device, node_id=identity)
+            rows = self._rows(table, cols, class_type, s, c, device, node_id=identity, pressure=pressure)
             if len(rows) >= minimum:
                 return rows, tier
         return [], "none"
@@ -474,9 +482,9 @@ class WorkflowETAHistory:
         if prediction:prediction.update(tier='runtime-profile',runtime_recipe=rows[0][0])
         return prediction
 
-    def predict_node(self, class_type, sig, cold, device="", node_id=None):
+    def predict_node(self, class_type, sig, cold, device="", node_id=None, pressure=None):
         """Return {'seconds','low','high','n','tier'}; seconds is None when no data."""
-        rows, tier = self._ladder("node_runs", "duration", class_type, sig, cold, device, node_id)
+        rows, tier = self._ladder("node_runs", "duration", class_type, sig, cold, device, node_id, pressure)
         if not rows:
             return {"seconds": None, "low": None, "high": None, "n": 0, "tier": "none"}
         values = [r[0] for r in rows]
@@ -489,13 +497,15 @@ class WorkflowETAHistory:
             "tier": tier,
         }
 
-    def predict_sampler_steps(self, class_type, step_sig, steps, cold, device, node_id):
-        """Extrapolate only same-family, same-device, same-state sampler rows."""
+    def predict_sampler_steps(self, class_type, step_sig, steps, cold, device, node_id, pressure=None):
+        """Extrapolate only same-family, same-device, same-state, same-pressure sampler rows."""
         with self._lock:
-            rows = self._db.execute(
-                "SELECT t_first,step_time,tail FROM sampler_runs WHERE class_type=? AND step_sig=? "
-                "AND cold=? AND device=? AND node_id=? ORDER BY id DESC LIMIT 50",
-                (class_type, step_sig, int(bool(cold)), device, str(node_id))).fetchall()
+            where = "SELECT t_first,step_time,tail FROM sampler_runs WHERE class_type=? AND step_sig=? AND cold=? AND device=? AND node_id=?"
+            params = [class_type, step_sig, int(bool(cold)), device, str(node_id)]
+            if pressure is not None:
+                where += " AND (pressure = ? OR pressure IS NULL)"
+                params.append(int(pressure))
+            rows = self._db.execute(where + " ORDER BY id DESC LIMIT 50", params).fetchall()
         rows = [row for row in rows if _workflow_eta_valid(row[0], True) and _workflow_eta_valid(row[1])
                 and _workflow_eta_valid(row[2], True)]
         if not rows:
