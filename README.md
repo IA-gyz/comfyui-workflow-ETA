@@ -1,7 +1,7 @@
-# Workflow ETA v0.2.31
+# Workflow ETA v0.2.32
 
 This release includes the latest dimension detection, seven themes, eight
-progress-bar styles and the previous ETA reliability fixes. The package version is v0.2.31.
+progress-bar styles and the previous ETA reliability fixes. The package version is v0.2.32.
 
 Automatic timing history and a live display for ComfyUI workflows.
 
@@ -536,6 +536,13 @@ included in diagnostic node summaries. Estimated ranges remain provisional; they
 are not guaranteed confidence limits. Live remaining time stays on the main timer.
 The v0.2.22 replay results remain historical validation of the prediction engine;
 this release improves its inspection and records, not its timing model.
+
+## Confidence color ladder (v0.2.32)
+
+The gradient strip on the timer card is replaced by a five-block color ladder
+(deep green on top, red at the bottom; + / ETA confidence / - markers kept). When a
+confidence level is known, the matching block shines (full opacity with a white
+outline) and the others dim to 35%; in idle state all blocks show at 85%.
 
 ## Independent browser panel (v0.2.31)
 

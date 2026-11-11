@@ -14,6 +14,7 @@ class LGraphNode {
 }
 const motionPreference = {matches:false,addEventListener(){}};
 const openedWindows = [];
+const strokeRects = [];
 const sandbox = { AbortController, window: { open: (url, name, feats) => { openedWindows.push([url, name, feats]); } }, matchMedia:()=>motionPreference, document: {hidden:false,addEventListener(){}}, app, api, LGraphNode, LiteGraph: { registerNodeType(n, C) { NodeType = C; } }, console, Date };
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(__dirname + "/js/workflow_eta.js", "utf8").replace(/^import .*;\n/gm, ""), sandbox);
@@ -30,7 +31,7 @@ const cardRects = [];
 const gradients = [];
 const ctx = { scale(x,y){ transforms.push([x,y]); }, save(){}, restore(){}, beginPath(){}, rect(){}, clip(){},
     fillRect(x,y,w,h){ cardRects.push([this.fillStyle,this.globalAlpha,x,y,w,h]); },
-    moveTo(){},lineTo(){},closePath(){},fill(){},stroke(){},strokeRect(){},arc(){},arc(){},stroke(){},
+    moveTo(){},lineTo(){},closePath(){},fill(){},stroke(){},strokeRect(x,y,w,h){ strokeRects.push([this.strokeStyle,x,y,w,h]); },arc(){},arc(){},stroke(){},
     createLinearGradient(x0,y0,x1,y1){ const g={stops:[],addColorStop(o,c){g.stops.push([o,c]);}}; gradients.push([x0,y0,x1,y1,g.stops]); return g; },
     fillText(t){ labels.push(t); }, measureText(t){ return { width: t.length * 6 }; } };
 const emit = (name, detail) => handlers[name]({detail});
@@ -67,7 +68,25 @@ expectCard({state:"running", remaining:65, elapsed:3, confidence:"learned", tier
 labels.length=0; node.onDrawForeground(ctx);
 assert(labels.includes("ETA") && labels.includes("confidence") && labels.includes("+") && labels.includes("\u2212"), "gradient strip labels: "+labels.slice(-6));
 const stripX = node.size[0]/node.properties.ui_scale - 72;
-assert(gradients.some(g => g[0]===stripX && g[1]===158 && g[2]===stripX && g[3]===258 && g[4][0][0]===0 && g[4][0][1]==="#1a9e4b" && g[4][1][0]===1 && g[4][1][1]==="#e5484d"), "vertical green-top gradient: "+JSON.stringify(gradients.map(g=>g.slice(0,4))));
+cardRects.length = 0; node.onDrawForeground(ctx);
+const ladder = () => cardRects.filter(r => r[2]===stripX && r[5]===20).map(r => [r[0], r[1], r[3]]);
+let lad = ladder();
+assert(lad.length === 5, "five ladder blocks: "+lad.length);
+assert(lad.map(r=>r[0]).join(",") === "#1a9e4b,#9ce09c,#ffd43b,#f76b15,#e5484d", "ladder green->red top to bottom: "+lad.map(r=>r[0]));
+assert(lad.map(r=>r[2]).join(",") === "158,178,198,218,238", "ladder stacked: "+lad.map(r=>r[2]));
+// shine: the block matching the current confidence is full-alpha with a white outline
+cardRects.length = 0; strokeRects.length = 0;
+emit("workflow.eta", {state:"running", remaining:65, elapsed:3, confidence:"learned", tiers:{"node-exact":2}, fraction:.05});
+node.onDrawForeground(ctx);
+lad = ladder();
+assert(lad[0][1] === 1 && lad.slice(1).every(r => r[1] === 0.35), "deep-green block shines for node-exact: "+JSON.stringify(lad));
+assert(strokeRects.some(r => r[0] === "#ffffff" && r[1] === stripX+1 && r[2] === 159 && r[3] === 58 && r[4] === 18), "shine outline on active block: "+JSON.stringify(strokeRects));
+cardRects.length = 0; strokeRects.length = 0;
+emit("workflow.eta", {state:"running", remaining:65, elapsed:3, confidence:"lower-bound", lower_bound:true, fraction:.05});
+node.onDrawForeground(ctx);
+lad = ladder();
+assert(lad[4][1] === 1 && lad[4][0] === "#e5484d" && lad.slice(0,4).every(r => r[1] === 0.35), "red block shines for lower-bound: "+JSON.stringify(lad));
+assert(strokeRects.some(r => r[0] === "#ffffff" && r[2] === 239), "shine outline on red block: "+JSON.stringify(strokeRects));
 labels.length=0;
 emit("workflow.eta", {state:"running", remaining:150, low:100, high:200, lower_bound:true, elapsed:5, confidence:"lower-bound", fraction:.1, nodes_done:1, nodes_total:5, eta_detail:{unpriced_nodes:[{node:"9",class:"Magik.H3ReferenceToVideo"}], provisional_remaining:150}});
 node.onDrawForeground(ctx);

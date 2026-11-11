@@ -682,10 +682,16 @@ app.registerExtension({
                 const confidenceLevel=workflowConfidenceLevel(p);
                 if(confidenceLevel>=0){ctx.globalAlpha=.25;ctx.fillStyle=WORKFLOW_CONFIDENCE_COLORS[confidenceLevel];ctx.fillRect(12,158,width-24,100);ctx.globalAlpha=1;}
                 const stripX=width-72;
-                const confidenceGradient=ctx.createLinearGradient(stripX,158,stripX,258);
-                confidenceGradient.addColorStop(0,WORKFLOW_CONFIDENCE_COLORS[4]);
-                confidenceGradient.addColorStop(1,WORKFLOW_CONFIDENCE_COLORS[0]);
-                ctx.fillStyle=confidenceGradient;ctx.fillRect(stripX,158,60,100);
+                for(let step=0;step<5;step++){
+                    const level=4-step;
+                    const y=158+step*20;
+                    const active=confidenceLevel>=0 && level===confidenceLevel;
+                    ctx.globalAlpha=active?1:(confidenceLevel>=0?0.35:0.85);
+                    ctx.fillStyle=WORKFLOW_CONFIDENCE_COLORS[level];
+                    ctx.fillRect(stripX,y,60,20);
+                    if(active){ctx.globalAlpha=1;ctx.strokeStyle="#ffffff";ctx.lineWidth=2;ctx.strokeRect(stripX+1,y+1,58,18);}
+                }
+                ctx.globalAlpha=1;
                 ctx.textAlign="center";
                 text("+",stripX+30,174,"bold 14px sans-serif","#10181c");
                 text("ETA",stripX+30,202,"bold 12px sans-serif","#10181c");
