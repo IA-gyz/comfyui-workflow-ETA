@@ -18,6 +18,8 @@ python3 install.py
 
 Find **Workflow ETA Panel** in KDE's application launcher. You can pin its running icon to the task manager. The installer copies the app to your user application-data directory and creates a matching icon and desktop entry; it does not require sudo. Use the same Python interpreter for installation and execution, with PySide6 available to it. No package installation is performed by the installer.
 
+Once installed, the clock button on the **Workflow ETA** node in ComfyUI (next to the settings gear) opens this panel; if it is already running, the existing window is activated instead.
+
 To run without installation:
 
 ```bash

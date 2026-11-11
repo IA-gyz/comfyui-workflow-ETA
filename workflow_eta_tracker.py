@@ -2040,6 +2040,30 @@ class WorkflowETATracker:
                 self._log(f"push loop error: {e!r}")
 
 
+# ------------------------------------------------------------------ desktop panel launcher
+def _workflow_eta_panel_command(data_home):
+    """Return (argv, None) that opens/activates the installed Workflow ETA Panel, or (None, reason).
+
+    Mirrors Comfy Kicker's "Open Timer Widget": prefer the desktop entry (it keeps the
+    interpreter chosen by the panel's install.py), then fall back to the installed script.
+    """
+    import shutil
+    import sys
+    from pathlib import Path
+    base = Path(data_home)
+    desktop = base / "applications" / "workflow-eta-panel.desktop"
+    script = base / "workflow-eta-panel" / "workflow_eta_panel.py"
+    gio = shutil.which("gio")
+    kio = shutil.which("kioclient6") or shutil.which("kioclient")
+    if desktop.is_file() and gio:
+        return [gio, "launch", str(desktop)], None
+    if desktop.is_file() and kio:
+        return [kio, "exec", str(desktop)], None
+    if script.is_file():
+        return [sys.executable, str(script)], None
+    return None, "Workflow ETA Panel is not installed; run install.py in the Workflow_ETA_Panel folder"
+
+
 # ------------------------------------------------------------------ install_workflow_eta
 def install_workflow_eta():
     import folder_paths
@@ -2061,6 +2085,24 @@ def install_workflow_eta():
     async def workflow_eta_status(request):
         with tracker.lock:
             return web.json_response(tracker.status_snapshot(), headers={"Cache-Control": "no-store"})
+
+    @PromptServer.instance.routes.post("/workflow/eta/open_panel")
+    async def workflow_eta_open_panel(request):
+        # Launching a local desktop app is a side effect: loopback clients only.
+        if request.remote_addr not in ("127.0.0.1", "::1"):
+            return web.json_response({"ok": False, "error": "The panel can only be opened from the local machine"}, status=403)
+        import subprocess
+        from pathlib import Path
+        data_home = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local/share")
+        command, error = _workflow_eta_panel_command(data_home)
+        if command is None:
+            return web.json_response({"ok": False, "error": error}, status=404)
+        try:
+            subprocess.Popen(command, start_new_session=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as launch_error:
+            return web.json_response({"ok": False, "error": f"Could not launch the panel: {launch_error}"}, status=500)
+        return web.json_response({"ok": True, "message": "Workflow ETA Panel requested; an already-open panel is activated"})
 
     @PromptServer.instance.routes.get("/workflow/eta/diagnostics/export")
     async def workflow_eta_export_diagnostics(request):

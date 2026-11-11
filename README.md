@@ -206,6 +206,9 @@ Completed runs remain visible until the next run starts.
 
 The status endpoint /workflow/eta/status restores the latest state on browser
 load or reconnection. Normal updates arrive through workflow.eta WebSocket events.
+The clock button on the WorkflowETA node (next to the settings gear) calls
+POST /workflow/eta/open_panel, which opens the installed Workflow ETA Panel
+desktop companion (loopback clients only); see Workflow_ETA_Panel/.
 
 ## WorkflowETAHistory and limitations
 

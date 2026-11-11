@@ -310,6 +310,21 @@ function openWorkflowWatch(node) {
     document.body.append(dialog);render();dialog.showModal();
 }
 
+async function openWorkflowETAPanel() {
+    // Same behavior as Comfy Kicker's "Open Timer Widget": the server launches the
+    // installed desktop panel; its single-instance guard activates an existing window.
+    try {
+        const response = await api.fetchApi("/workflow/eta/open_panel", { method: "POST" });
+        if (!response.ok) {
+            let message = "HTTP " + response.status;
+            try { message = (await response.json()).error || message; } catch {}
+            console.warn("[workflow-eta] could not open the desktop panel:", message);
+        }
+    } catch (error) {
+        console.warn("[workflow-eta] panel request failed", error);
+    }
+}
+
 function openWorkflowETASettings(node) {
     if (node._workflowSettingsDialog?.isConnected) { node._workflowSettingsDialog.focus(); return; }
     const make = (tag, text) => {
@@ -532,6 +547,10 @@ app.registerExtension({
                     else return;
                     this.setDirtyCanvas(true,false);return true;
                 }
+                if (!this.flags?.collapsed && x >= width - 78 && x <= width - 50 && y >= 8 && y <= 36) {
+                    openWorkflowETAPanel();
+                    return true;
+                }
                 if (!this.flags?.collapsed && x >= width - 46 && x <= width - 18 && y >= 8 && y <= 36) {
                     openWorkflowETASettings(this);
                     return true;
@@ -620,6 +639,10 @@ app.registerExtension({
                 ctx.scale(scale, scale);
                 text(!connected ? "Disconnected" : done ? "Completed" : abort ? "Stopped / failed" :
                      running ? "Workflow running" : "Ready", 18, 28, "bold 14px sans-serif", color);
+                ctx.fillStyle = theme.track; ctx.fillRect(width - 78, 8, 28, 28);
+                ctx.strokeStyle = theme.strong; ctx.lineWidth = 1.8; ctx.lineCap = "round";
+                ctx.beginPath(); ctx.arc(width - 64, 22, 8.5, 0, Math.PI * 2); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(width - 64, 22); ctx.lineTo(width - 64, 16.5); ctx.lineTo(width - 58.5, 25); ctx.stroke();
                 ctx.fillStyle = theme.track; ctx.fillRect(width - 46, 8, 28, 28);
                 text("⚙", width - 41, 29, "20px sans-serif", theme.strong);
                 const remaining = Number.isFinite(p.remaining) ? p.remaining : null;
