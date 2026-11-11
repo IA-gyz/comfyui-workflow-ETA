@@ -1627,7 +1627,7 @@ class WorkflowETATracker:
         for nid in run.todo:
             meta = run.meta.get(nid)
             if meta:
-                prediction = self.hist.predict_node(meta[0], meta[1], run.node_cold[nid], self.device, node_id=nid, pressure=getattr(run,"pressure",None))
+                prediction = self.hist.predict_node(meta[0], meta[1], run.node_cold[nid], self.device, node_id=nid, pressure=getattr(run,"pressure",None), model_key=meta[2])
                 if nid in run.step_plans and prediction["tier"] not in ("node-exact", "node-few", "exact", "few"):
                     plan = run.step_plans[nid]
                     scaled = self.hist.predict_sampler_steps(meta[0], plan["step_sig"], plan["steps"], run.node_cold[nid], self.device, nid, pressure=getattr(run,"pressure",None))

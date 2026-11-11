@@ -534,6 +534,14 @@ are not guaranteed confidence limits. Live remaining time stays on the main time
 The v0.2.22 replay results remain historical validation of the prediction engine;
 this release improves its inspection and records, not its timing model.
 
+## Model-key rung in the fallback ladder (v0.2.30)
+
+When no signature match exists, predictions now try a model-key rung
+(same class, same model lineage, any config; tiers model / model-few) before the
+bare class average. On the reference dataset this cut fallback MAE from 73.7 s to
+58.2 s on model-covered held-out points (~21% better), because the class average
+mixed very different models/configs (e.g. +190 s overestimate on video samplers).
+
 ## Reference-image dimensions in the workload signature (v0.2.29)
 
 Multi-image reference nodes (inputs like reference_1..reference_N on classes with

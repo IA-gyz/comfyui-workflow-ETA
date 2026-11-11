@@ -81,6 +81,8 @@ _INTERVAL_TIERS = {
     "other-state": (0.01, 0.99, 0.55),
     "class": (0.01, 0.99, 0.65),
     "class-other-state": (0.01, 0.99, 0.75),
+    "model": (0.05, 0.95, 0.35),
+    "model-few": (0.05, 0.95, 0.45),
 }
 
 
@@ -269,12 +271,15 @@ class WorkflowETAHistory:
                 self._prune_locked()
 
     # --------------------------------------------------------------- reading
-    def _rows(self, table, cols, class_type, sig, cold, device, limit=50, node_id=None, pressure=None):
+    def _rows(self, table, cols, class_type, sig, cold, device, limit=50, node_id=None, pressure=None, model_key=None):
         where = ["class_type = ?", "cold = ?"]
         params = [class_type, int(bool(cold))]
         if sig is not None:
             where.append("sig = ?")
             params.append(sig)
+        if model_key:
+            where.append("model_key = ?")
+            params.append(model_key)
         if node_id is not None:
             where.append("node_id = ?")
             params.append(str(node_id))
@@ -289,24 +294,27 @@ class WorkflowETAHistory:
         with self._lock:
             return self._db.execute(sql, params).fetchall()
 
-    def _ladder(self, table, cols, class_type, sig, cold, device, node_id=None, pressure=None):
+    def _ladder(self, table, cols, class_type, sig, cold, device, node_id=None, pressure=None, model_key=""):
         """Pick the best available sample set. Returns (rows, tier)."""
         steps = []
         if node_id is not None:
-            steps.extend([(sig, cold, node_id, "node-exact", 3),
-                          (sig, cold, node_id, "node-few", 1)])
-        steps.extend([(sig, cold, None, "exact", 3),
-                      (sig, cold, None, "few", 1),
+            steps.extend([(sig, cold, node_id, "node-exact", 3, None),
+                          (sig, cold, node_id, "node-few", 1, None)])
+        steps.extend([(sig, cold, None, "exact", 3, None),
+                      (sig, cold, None, "few", 1, None),
                       ])
+        if model_key:
+            steps.extend([(None, cold, None, "model", 3, model_key),
+                          (None, cold, None, "model-few", 1, model_key)])
         if node_id is not None:
-            steps.append((None, cold, node_id, "node-class", 1))
-        steps.append((None, cold, None, "class", 1))
+            steps.append((None, cold, node_id, "node-class", 1, None))
+        steps.append((None, cold, None, "class", 1, None))
         if node_id is not None:
-            steps.append((sig, not cold, node_id, "node-other-state", 1))
-        steps.extend([(sig, not cold, None, "other-state", 1),
-                      (None, not cold, None, "class-other-state", 1)])
-        for s, c, identity, tier, minimum in steps:
-            rows = self._rows(table, cols, class_type, s, c, device, node_id=identity, pressure=pressure)
+            steps.append((sig, not cold, node_id, "node-other-state", 1, None))
+        steps.extend([(sig, not cold, None, "other-state", 1, None),
+                      (None, not cold, None, "class-other-state", 1, None)])
+        for s, c, identity, tier, minimum, mk in steps:
+            rows = self._rows(table, cols, class_type, s, c, device, node_id=identity, pressure=pressure, model_key=mk)
             if len(rows) >= minimum:
                 return rows, tier
         return [], "none"
@@ -482,9 +490,9 @@ class WorkflowETAHistory:
         if prediction:prediction.update(tier='runtime-profile',runtime_recipe=rows[0][0])
         return prediction
 
-    def predict_node(self, class_type, sig, cold, device="", node_id=None, pressure=None):
+    def predict_node(self, class_type, sig, cold, device="", node_id=None, pressure=None, model_key=""):
         """Return {'seconds','low','high','n','tier'}; seconds is None when no data."""
-        rows, tier = self._ladder("node_runs", "duration", class_type, sig, cold, device, node_id, pressure)
+        rows, tier = self._ladder("node_runs", "duration", class_type, sig, cold, device, node_id, pressure, model_key)
         if not rows:
             return {"seconds": None, "low": None, "high": None, "n": 0, "tier": "none"}
         values = [r[0] for r in rows]
