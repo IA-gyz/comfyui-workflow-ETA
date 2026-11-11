@@ -534,6 +534,16 @@ are not guaranteed confidence limits. Live remaining time stays on the main time
 The v0.2.22 replay results remain historical validation of the prediction engine;
 this release improves its inspection and records, not its timing model.
 
+## Reference-image dimensions in the workload signature (v0.2.29)
+
+Multi-image reference nodes (inputs like reference_1..reference_N on classes with
+"reference" in the name) are now probed like image loaders: each file's width/height
+(bounded to 12 files, 24 probes per graph pass) enters the workload token as
+source_reference_images. Previously only the file paths were hashed, so overwriting
+a reference image with a different resolution kept the same signature and exact
+matches averaged across very different processing times. Unreadable reference files
+mark the workload unresolved.
+
 ## Provisional totals shown as ranges (v0.2.28)
 
 When nodes are unpriced or the graph is incomplete (lower-bound estimate), the top

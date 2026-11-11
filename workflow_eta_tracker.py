@@ -623,6 +623,7 @@ def _workflow_eta_workload_lineage(graph, image_info_fn=None, video_info=None):
     video_info = _workflow_eta_collect_videos(graph) if video_info is None else video_info
     direct, uncertain, image_cache = {}, {}, {}
     video_probes = 0
+    image_probes = 0
     for nid, node in graph.items():
         cls = node.get("class_type", "")
         inputs = node.get("inputs") or {}
@@ -678,6 +679,27 @@ def _workflow_eta_workload_lineage(graph, image_info_fn=None, video_info=None):
             # even when the first source file's dimensions are known.
             if any(word in lower for word in ("folder", "directory", "batch", "random")):
                 unknown = True
+        reference_keys = [key for key in inputs if key.startswith(("reference", "ref_image")) and key.rsplit("_", 1)[-1].isdigit()]
+        if reference_keys and "reference" in lower:
+            dims = []
+            for key in reference_keys[:12]:
+                resolved = _workflow_eta_literal(graph, inputs.get(key))
+                if not isinstance(resolved, str):
+                    continue
+                cache_key = ("image", resolved)
+                if cache_key not in image_cache:
+                    if image_probes < 24:
+                        image_probes += 1
+                        image_cache[cache_key] = image_info_fn(resolved)
+                    else:
+                        image_cache[cache_key] = None
+                info = image_cache[cache_key]
+                if info and info.get("width") and info.get("height"):
+                    dims.append((info["width"], info["height"]))
+                else:
+                    unknown = True
+            if dims:
+                controls["source_reference_images"] = sorted(dims)
         if _workflow_eta_video_adapter(node):
             loaded=_workflow_eta_loaded_video_info(graph,str(nid),video_info)
             controls["source_video_loaded"]=loaded or {"unresolved":True}
