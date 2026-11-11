@@ -29,7 +29,7 @@ const cardRects = [];
 const gradients = [];
 const ctx = { scale(x,y){ transforms.push([x,y]); }, save(){}, restore(){}, beginPath(){}, rect(){}, clip(){},
     fillRect(x,y,w,h){ cardRects.push([this.fillStyle,this.globalAlpha,x,y,w,h]); },
-    moveTo(){},lineTo(){},closePath(){},fill(){},
+    moveTo(){},lineTo(){},closePath(){},fill(){},arc(){},stroke(){},
     createLinearGradient(x0,y0,x1,y1){ const g={stops:[],addColorStop(o,c){g.stops.push([o,c]);}}; gradients.push([x0,y0,x1,y1,g.stops]); return g; },
     fillText(t){ labels.push(t); }, measureText(t){ return { width: t.length * 6 }; } };
 const emit = (name, detail) => handlers[name]({detail});
@@ -147,6 +147,18 @@ assert(saved.properties.theme === "paper" && saved.bgcolor === settingsNode.bgco
 settingsNode.onRemoved();assert(!dialog.isConnected && settingsNode._workflowSettingsDialog === null);
 saved.setWorkflowETATheme("invalid");assert(saved.properties.theme === "ocean");
 console.log("PASS: scaled gear hit area, settings slider, seven themes, live palette, workflow persistence, removal cleanup");
+
+const panelNode = new NodeType(); panelNode.onNodeCreated(); panelNode.onAdded();
+cardRects.length = 0; panelNode.onDrawForeground(ctx);
+assert(cardRects.some(r => r[2] === 540 - 78 && r[3] === 8 && r[4] === 28 && r[5] === 28), "panel button drawn left of the settings gear");
+const previousPanelFetch = api.fetchApi; const panelCalls = [];
+api.fetchApi = async (...args) => { panelCalls.push(args); return { ok: true, json: async () => ({ ok: true }) }; };
+assert(panelNode.onMouseDown({button: 0}, [panelNode.size[0] - 64, 22]) === true);
+assert(panelCalls.some(c => c[0] === "/workflow/eta/open_panel" && c[1] && c[1].method === "POST"), "panel button posts /workflow/eta/open_panel");
+assert(panelNode.onMouseDown({button: 0}, [panelNode.size[0] - 30, 20]) === true, "gear hit area unchanged");
+assert(panelNode._workflowSettingsDialog?.open, "gear still opens settings");
+api.fetchApi = previousPanelFetch; panelNode.onRemoved();
+console.log("PASS: panel button drawn beside the settings gear and posts to /workflow/eta/open_panel");
 
 
 const animationNode = new NodeType(); animationNode.onNodeCreated(); animationNode.onAdded();
