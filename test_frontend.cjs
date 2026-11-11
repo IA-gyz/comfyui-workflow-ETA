@@ -65,7 +65,8 @@ expectCard({state:"running", remaining:65, elapsed:3, confidence:"learned", tier
 expectCard({state:"running", remaining:65, elapsed:3, confidence:"learned", tiers:{"node-class":2}, fraction:.05}, "#9ce09c");
 labels.length=0; node.onDrawForeground(ctx);
 assert(labels.includes("ETA") && labels.includes("confidence") && labels.includes("+") && labels.includes("\u2212"), "gradient strip labels: "+labels.slice(-6));
-assert(gradients.some(g => g[0]===12 && g[1]===158 && g[2]===12 && g[3]===258 && g[4][0][0]===0 && g[4][0][1]==="#1a9e4b" && g[4][1][0]===1 && g[4][1][1]==="#e5484d"), "vertical green-top gradient: "+JSON.stringify(gradients.map(g=>g.slice(0,4))));
+const stripX = node.size[0]/node.properties.ui_scale - 72;
+assert(gradients.some(g => g[0]===stripX && g[1]===158 && g[2]===stripX && g[3]===258 && g[4][0][0]===0 && g[4][0][1]==="#1a9e4b" && g[4][1][0]===1 && g[4][1][1]==="#e5484d"), "vertical green-top gradient: "+JSON.stringify(gradients.map(g=>g.slice(0,4))));
 labels.length=0;
 emit("workflow.eta", {state:"running", remaining:150, low:100, high:200, lower_bound:true, elapsed:5, confidence:"lower-bound", fraction:.1, nodes_done:1, nodes_total:5, eta_detail:{unpriced_nodes:[{node:"9",class:"Magik.H3ReferenceToVideo"}], provisional_remaining:150}});
 node.onDrawForeground(ctx);
