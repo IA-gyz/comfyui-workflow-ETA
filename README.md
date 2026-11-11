@@ -534,6 +534,14 @@ are not guaranteed confidence limits. Live remaining time stays on the main time
 The v0.2.22 replay results remain historical validation of the prediction engine;
 this release improves its inspection and records, not its timing model.
 
+## sampler_runs restricted to sampler classes (v0.2.27)
+
+Step-family timing is now recorded only for KSampler, KSamplerAdvanced,
+SamplerCustom and SamplerCustomAdvanced. Fast video post-process nodes that emit
+progress ticks (e.g. per-frame upscalers) previously landed in sampler_runs with
+sub-second step times, polluting family statistics. Their durations remain in
+node_runs as before.
+
 ## Uncertain video length downgrades exact tiers (v0.2.26)
 
 If any upstream video loader's frame count is missing or only estimated at run start,

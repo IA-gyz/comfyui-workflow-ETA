@@ -758,6 +758,7 @@ def _workflow_eta_progress_rates(cur):
 # Only known single-pass sampler/scheduler interfaces are extrapolated.
 _STEP_SCHEDULERS = {"BasicScheduler", "KarrasScheduler", "ExponentialScheduler",
                     "PolyexponentialScheduler", "BetaSamplingScheduler", "VPScheduler"}
+_SAMPLER_CLASSES = ("KSampler", "KSamplerAdvanced", "SamplerCustom", "SamplerCustomAdvanced")
 
 
 def _workflow_eta_sampler_plan(run, nid, workloads, explicit_video=False):
@@ -1837,7 +1838,7 @@ class WorkflowETATracker:
         sampler = None
         ticks = cur["ticks"]
         rates = _workflow_eta_progress_rates(cur)
-        if (meta and cur["max"] >= 2 and rates and not cur.get("repeated", False)
+        if (meta and meta[0] in _SAMPLER_CLASSES and cur["max"] >= 2 and rates and not cur.get("repeated", False)
                 and cur.get("first_tick") is not None):
             step = statistics.median(rates[-10:])
             sampler = (cur["max"], cur["first_tick"] - cur["t0"], step)
