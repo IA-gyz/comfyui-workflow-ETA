@@ -1779,12 +1779,16 @@ class WorkflowETATracker:
         lower_bound = bool(unknown or run.approximate)
         if (graph_pred and graph_pred.get("seconds") is not None and not run.done
                 and not run.approximate):
-            # Whole-run prior while nothing has finished yet; per-node sum takes over after.
-            remaining = max(0.0, graph_pred["seconds"] - elapsed)
-            low = max(0.0, (graph_pred.get("low") or graph_pred["seconds"]) - elapsed)
-            high = max(0.0, (graph_pred.get("high") or graph_pred["seconds"]) - elapsed)
-            tiers[graph_pred.get("tier", "run-exact")] = 1
-            lower_bound = False
+            # Whole-run prior while nothing has finished yet, but only as a floor:
+            # never lower the estimate below live/per-node data (e.g. a slow sampler
+            # whose actual remaining exceeds the historical run total).
+            gp_rem = max(0.0, graph_pred["seconds"] - elapsed)
+            if gp_rem > remaining:
+                remaining = gp_rem
+                low = max(low, max(0.0, (graph_pred.get("low") or graph_pred["seconds"]) - elapsed))
+                high = max(high, max(0.0, (graph_pred.get("high") or graph_pred["seconds"]) - elapsed))
+                tiers[graph_pred.get("tier", "run-exact")] = 1
+                lower_bound = False
         if lower_bound:
             confidence = "lower-bound"
         elif unresolved_workload or (remaining > 0 and weak / remaining > 0.2):
@@ -1856,6 +1860,10 @@ class WorkflowETATracker:
         if any('Provisional video' in guess or 'Video projection' in guess for guess in guesses):
             reason='Includes provisional video workload scaling'
         if run.approximate:reason="Graph incomplete; extra work may be missing"
+        graph_pred=getattr(run,"graph_pred",None)
+        if graph_pred and graph_pred.get("seconds") is not None and not run.done and not run.approximate:
+            gp_rem=max(0.,graph_pred["seconds"]-(now-run.t0))
+            if gp_rem>provisional:provisional=gp_rem
         return {"timing_message":timing,"coverage_message":reason,"known_remaining":round(subtotal,2),
             "provisional_remaining":round(provisional,2) if provisional>0 else None,
             "unpriced_nodes":missing,"downstream_unpriced":len(downstream),

@@ -86,6 +86,17 @@ with tempfile.TemporaryDirectory() as d:
     eta = t._workflow_eta(t.run, 30.0)
     assert abs(eta["remaining"] - (t.run.graph_pred["seconds"] - 30.0)) < 1e-6, eta
     assert eta["tiers"].get("run-exact") == 1
+    # live/per-node data above the prior must win: a slow sampler (900s history)
+    # is not overridden by a 210s whole-run prior
+    sampler_sig = t.run.meta["sampler"][1]
+    for _ in range(4):
+        h.record_node("KSampler", sampler_sig, 900.0, cold=True, device="gpu", node_id="sampler", model_key="a.safetensors")
+    t2 = mk()
+    t2.run.prompt_id = "p2"
+    clock.now = 30.0
+    eta2 = t2._workflow_eta(t2.run, 30.0)
+    assert eta2["remaining"] > 800.0 and "run-exact" not in eta2["tiers"], eta2  # per-node sum wins over the prior
+    t2.run = None
     t._on_cached({"prompt_id": "p1", "nodes": ["model", "latent"]})
     t._on_executing({"prompt_id": "p1", "node": "sampler"})
     for step in range(1, 21):

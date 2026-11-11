@@ -1,7 +1,7 @@
-# Workflow ETA v0.2.33
+# Workflow ETA v0.2.34
 
 This release includes the latest dimension detection, seven themes, eight
-progress-bar styles and the previous ETA reliability fixes. The package version is v0.2.33.
+progress-bar styles and the previous ETA reliability fixes. The package version is v0.2.34.
 
 Automatic timing history and a live display for ComfyUI workflows.
 
@@ -536,6 +536,13 @@ included in diagnostic node summaries. Estimated ranges remain provisional; they
 are not guaranteed confidence limits. Live remaining time stays on the main timer.
 The v0.2.22 replay results remain historical validation of the prediction engine;
 this release improves its inspection and records, not its timing model.
+
+## Whole-run prior is a floor, not an override (v0.2.34)
+
+The graph-level prior now only raises the estimate above the live/per-node sum; it
+never lowers it. Previously a historical whole-run total could hide a currently slow
+sampler (log showed 5:49 remaining for the sampler while the ETA displayed a lower
+provisional total). The same floor applies to the provisional card value.
 
 ## Whole-graph ETA prior (v0.2.33)
 
