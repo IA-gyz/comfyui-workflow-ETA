@@ -22,6 +22,8 @@ jobs:
             echo "== $t =="
             python "$t" || status=1
           done
+          echo "== Workflow_ETA_Panel/test_panel.py =="
+          python Workflow_ETA_Panel/test_panel.py || status=1
           exit $status
       - name: Run frontend check
         run: node test_frontend.cjs
