@@ -384,6 +384,15 @@ function openWorkflowETASettings(node) {
     }
     animations.value = workflowBarAnimation(node.properties.bar_animation);
     animationLabel.append(animations); dialog.append(animationLabel);
+    const copyLabel = make("label");
+    copyLabel.style.cssText = "display:flex;align-items:center;gap:8px;margin-top:18px;cursor:pointer";
+    const copyToggle = make("input");
+    copyToggle.type = "checkbox";
+    copyToggle.checked = typeof latest.copy_to_log === "boolean" ? latest.copy_to_log : node.properties.copy_to_log !== false;
+    copyToggle.setAttribute("aria-label", "Copy to comfyui.log");
+    copyLabel.append(copyToggle, make("span", "Copy to comfyui.log"));
+    dialog.append(copyLabel);
+    copyToggle.addEventListener("change", () => node.setWorkflowCopyToLog(copyToggle.checked));
     const diagnosticLabel=make("label","Recent runs to export (1–100)");diagnosticLabel.style.cssText="display:block;margin-top:18px";
     const diagnosticCount=make("input");diagnosticCount.type="number";diagnosticCount.min="1";diagnosticCount.max="100";diagnosticCount.value="20";diagnosticCount.style.cssText=themes.style.cssText;
     diagnosticLabel.append(diagnosticCount);dialog.append(diagnosticLabel);
@@ -419,6 +428,7 @@ function openWorkflowETASettings(node) {
         }
         close.style.cssText += ";padding:5px 9px;border-radius:6px;border:1px solid;cursor:pointer;font:inherit";
         scale.style.accentColor = theme.accent;
+        copyToggle.style.accentColor = theme.accent;
     };
     scale.addEventListener("input", () => { node.setWorkflowUIScale(Number(scale.value)); percentage.textContent = Math.round(Number(scale.value) * 100) + "%"; });
     themes.addEventListener("change", () => { node.setWorkflowETATheme(themes.value); paint(); });
@@ -445,6 +455,9 @@ function updateWorkflowETA(payload) {
     if (!payload || typeof payload !== "object") return;
     mergeWorkflowLogs(payload);
     latest = payload;
+    if (typeof payload.copy_to_log === "boolean") {
+        for (const node of displays) { node.properties ??= {}; node.properties.copy_to_log = payload.copy_to_log; }
+    }
     workflowWatchDialog?._workflowRender?.();
     revision++;
     for (const node of displays) node.setDirtyCanvas(true, false);
@@ -488,6 +501,7 @@ app.registerExtension({
                 this._workflowUIScale = this.properties.ui_scale;
                 this.properties.logs_visible = this.properties.logs_visible === true;
                 this._workflowLogsVisible = this.properties.logs_visible;
+                this.properties.copy_to_log = this.properties.copy_to_log !== false;
                 this._workflowLogScroll = 0;
                 this.size = [540 * this._workflowUIScale,
                     (WORKFLOW_BASE_HEIGHT + (this._workflowLogsVisible ? workflowLogHeight(this) : 0)) * this._workflowUIScale];
@@ -518,6 +532,24 @@ app.registerExtension({
                 if (this.setSize) this.setSize(size); else this.size=size;
                 this.setDirtyCanvas(true,true);this.graph?.change?.();
                 if (visible) restoreWorkflowETA();
+            }
+            setWorkflowCopyToLog(value) {
+                const enabled = value === true;
+                this.properties ??= {};
+                this.properties.copy_to_log = enabled;
+                for (const node of displays) {
+                    if (node === this) continue;
+                    node.properties ??= {};
+                    node.properties.copy_to_log = enabled;
+                }
+                latest.copy_to_log = enabled;
+                this.setDirtyCanvas(true, false);
+                this.graph?.change?.();
+                api.fetchApi("/workflow/eta/copy_log", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ enabled })
+                }).catch(() => {});
             }
             setWorkflowBarAnimation(value) {
                 this.properties ??= {};
@@ -619,6 +651,7 @@ app.registerExtension({
                 this.color = workflowTheme(this).title; this.bgcolor = workflowTheme(this).bg;
                 this.properties.logs_visible = this.properties.logs_visible === true;
                 this._workflowLogsVisible = this.properties.logs_visible;
+                this.properties.copy_to_log = this.properties.copy_to_log !== false;
                 // Saved heights can contain an old expanded-log layout or load-time
                 // minimum computed before ui_scale/log visibility were restored.
                 // Refit height from the final properties instead of retaining that excess.
@@ -635,6 +668,7 @@ app.registerExtension({
                 if (name === "theme") { this.setWorkflowETATheme(value); return true; }
                 if (name === "bar_animation") { this.setWorkflowBarAnimation(value); return true; }
                 if (name === "logs_visible") { this.setWorkflowLogVisible(value); return true; }
+                if (name === "copy_to_log") { this.setWorkflowCopyToLog(value); return true; }
             }
             getExtraMenuOptions(_, options) {
                 const current = normalizeWorkflowUIScale(this.properties?.ui_scale);

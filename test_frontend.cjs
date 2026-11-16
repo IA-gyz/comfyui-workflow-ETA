@@ -225,6 +225,33 @@ assert(saved.properties.theme === "paper" && saved.bgcolor === settingsNode.bgco
 settingsNode.onRemoved();assert(!dialog.isConnected && settingsNode._workflowSettingsDialog === null);
 saved.setWorkflowETATheme("invalid");assert(saved.properties.theme === "ocean");
 console.log("PASS: scaled gear hit area, settings slider, seven themes, live palette, workflow persistence, removal cleanup");
+// "Copy to comfyui.log" toggle in the settings dialog drives the backend console flag.
+const copyNode = new NodeType(); copyNode.onNodeCreated(); copyNode.onAdded();
+const copyCalls = [];
+const previousCopyFetch = api.fetchApi;
+api.fetchApi = async (...args) => { copyCalls.push(args); return { ok: true, json: async () => ({ ok: true, copy_to_log: false }) }; };
+copyNode.onMouseDown({button:0},[copyNode.size[0]-30,20]);
+const copyDialog = copyNode._workflowSettingsDialog;
+const findCheckbox = root => root.tagName === "input" && root.type === "checkbox" ? root : root.children.map(findCheckbox).find(Boolean);
+const checkbox = findCheckbox(copyDialog);
+const copyLabel = copyDialog.children.find(c => c.tagName === "label" && c.children.includes(checkbox));
+assert(checkbox && copyLabel && copyLabel.children.some(e => e.textContent === "Copy to comfyui.log"), "settings has a 'Copy to comfyui.log' checkbox");
+assert(checkbox.attrs["aria-label"] === "Copy to comfyui.log");
+assert(checkbox.checked === true, "toggle defaults to ON");
+const mirrorNode = new NodeType(); mirrorNode.onNodeCreated(); mirrorNode.onAdded();
+checkbox.checked = false; checkbox.dispatch("change");
+assert(copyNode.properties.copy_to_log === false && mirrorNode.properties.copy_to_log === false, "toggle mirrors to every display");
+assert(copyCalls.some(c => c[0] === "/workflow/eta/copy_log" && c[1].method === "POST" && c[1].body === JSON.stringify({enabled:false})), "toggle posts to /workflow/eta/copy_log: " + JSON.stringify(copyCalls));
+emit("workflow.eta", {state:"idle", copy_to_log:true});
+assert(copyNode.properties.copy_to_log === true && mirrorNode.properties.copy_to_log === true, "server payload syncs the toggle on every display");
+copyNode.onConfigure();
+copyNode.onPropertyChanged("copy_to_log", false);
+assert(copyNode.properties.copy_to_log === false, "property changes route through the toggle");
+assert(copyCalls.some(c => c[1].body === JSON.stringify({enabled:false})), "property change posts enabled:false");
+api.fetchApi = previousCopyFetch;
+copyNode.onRemoved(); mirrorNode.onRemoved();
+console.log("PASS: settings 'Copy to comfyui.log' toggle posts the backend flag, mirrors all displays and syncs from server payloads");
+
 
 const panelNode = new NodeType(); panelNode.onNodeCreated(); panelNode.onAdded();
 cardRects.length = 0; panelNode.onDrawForeground(ctx);

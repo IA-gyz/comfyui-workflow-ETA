@@ -1,11 +1,11 @@
-# Workflow ETA v0.2.35
+# Workflow ETA v0.2.36
 
 This release refines the WorkflowETA node display: Detailed Data toggle on the
 right, tooltips on the header buttons, the ETA confidence label above the color
-ladder with smileys per level, a per-theme highlight for the active node, and a
-taller progress bar. It also includes the latest dimension detection, seven
-themes, eight progress-bar styles and the previous ETA reliability fixes. The
-package version is v0.2.35.
+ladder with smileys per level, a per-theme highlight for the active node, a taller
+progress bar, and a "Copy to comfyui.log" toggle in the node settings. It also
+includes the latest dimension detection, seven themes, eight progress-bar styles
+and the previous ETA reliability fixes. The package version is v0.2.36.
 
 Automatic timing history and a live display for ComfyUI workflows.
 
@@ -33,7 +33,7 @@ Buffers are kept in memory only and reset when the ComfyUI backend restarts;
 log contents are not saved in the workflow or timing database. Browser reloads
 and opening the panel restore the backend's retained buffer through the status
 endpoint. WebSocket updates send only new entries. Logging into this buffer
-also works with WORKFLOW_ETA_VERBOSE=0, which disables console printing only.
+also works with WORKFLOW_ETA_VERBOSE=0, which disables console printing only. The node settings additionally offer a runtime "Copy to comfyui.log" toggle for the same switch (see v0.2.36).
 
 ## Empirical batch and resolution estimates (v0.2.2)
 
@@ -541,6 +541,16 @@ included in diagnostic node summaries. Estimated ranges remain provisional; they
 are not guaranteed confidence limits. Live remaining time stays on the main timer.
 The v0.2.22 replay results remain historical validation of the prediction engine;
 this release improves its inspection and records, not its timing model.
+
+## "Copy to comfyui.log" toggle (v0.2.36)
+
+The node settings dialog (gear button) now has a **Copy to comfyui.log** checkbox.
+When ON, every Workflow ETA log entry is also printed to the ComfyUI log
+(`[workflow-eta] ...`, the same lines WORKFLOW_ETA_VERBOSE controls at startup); when
+OFF, entries only appear in the node's Detailed Data panel. The switch applies at
+runtime through `POST /workflow/eta/copy_log`, is reported back in the status
+snapshot and every `workflow.eta` push (`copy_to_log`), and is mirrored across all
+Workflow ETA displays so every settings dialog shows the same state.
 
 ## Node display refinements (v0.2.35)
 

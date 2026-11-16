@@ -1026,7 +1026,8 @@ class WorkflowETATracker:
     def status_snapshot(self):
         with self.lock:
             return dict(self.last_payload or {"state": "idle"},
-                        log_session=self.log_session, logs=list(self.log_entries))
+                        log_session=self.log_session, logs=list(self.log_entries),
+                        copy_to_log=self.verbose)
 
     # ------------------------------------------------------- send_sync wrap
     def attach(self):
@@ -2004,6 +2005,7 @@ class WorkflowETATracker:
         payload = {
             "log_session": self.log_session,
             "logs": [entry for entry in self.log_entries if entry["id"] > self._last_log_sent],
+            "copy_to_log": self.verbose,
             "prompt_id": run.prompt_id, "state": state,
             "start_ts": run.start_ts,
             "expected_total": (round(now-run.t0,2) if state=="done" else
@@ -2169,6 +2171,22 @@ def install_workflow_eta():
     async def workflow_eta_panel_page(request):
         return web.Response(text=WORKFLOW_ETA_PANEL_HTML, content_type="text/html",
                             headers={"Cache-Control": "no-store"})
+
+    @PromptServer.instance.routes.post("/workflow/eta/copy_log")
+    async def workflow_eta_copy_log(request):
+        # Runtime switch for the "Copy to comfyui.log" node-settings toggle:
+        # when ON, tracker log entries are also printed to the ComfyUI log.
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
+            return web.json_response({"ok": False, "error": 'expected a JSON body like {"enabled": true}'}, status=400)
+        with tracker.lock:
+            tracker.verbose = body["enabled"]
+            tracker._log("copy to comfyui.log " + ("enabled" if tracker.verbose else "disabled") +
+                         " from the node settings")
+            return web.json_response({"ok": True, "copy_to_log": tracker.verbose})
 
     @PromptServer.instance.routes.post("/workflow/eta/open_panel")
     async def workflow_eta_open_panel(request):
