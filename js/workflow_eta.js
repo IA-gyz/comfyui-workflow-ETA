@@ -2,6 +2,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 const WORKFLOW_CONFIDENCE_COLORS = ["#e5484d", "#f76b15", "#ffd43b", "#9ce09c", "#1a9e4b"];
+const WORKFLOW_CONFIDENCE_EMOJIS = ["😞", "🙁", "😐", "🙂", "😄"];
 const WORKFLOW_STRONG_TIERS = ["node-exact", "exact", "runtime-exact", "run-exact", "run-few"];
 const WORKFLOW_WEAK_TIERS = ["class", "other-state", "class-other-state", "node-other-state", "node-class",
     "machine-unmatched", "runtime-media-profile", "runtime-video-profile", "runtime-video-provisional",
@@ -29,14 +30,26 @@ function normalizeWorkflowUIScale(value) {
 }
 
 const WORKFLOW_ETA_THEMES = {
-    ocean: { name: "Ocean", title: "#243b4c", bg: "#15232e", text: "#c8d6df", muted: "#8ca5b5", strong: "#f1f7fa", accent: "#67d5bf", warning: "#ffba70", danger: "#ff8895", track: "#304552" },
-    midnight: { name: "Midnight", title: "#202744", bg: "#101426", text: "#d0d7ee", muted: "#9caacb", strong: "#f3f5ff", accent: "#8ba8ff", warning: "#f5be7b", danger: "#ff8f9f", track: "#2d3655" },
-    graphite: { name: "Graphite", title: "#383b40", bg: "#202226", text: "#d9dce1", muted: "#a3a9b3", strong: "#ffffff", accent: "#b4d3e5", warning: "#f7bd77", danger: "#ff929a", track: "#464b54" },
-    forest: { name: "Forest", title: "#234338", bg: "#132a21", text: "#cfe3d6", muted: "#98bba8", strong: "#f3fff5", accent: "#88d99a", warning: "#eec477", danger: "#ff9294", track: "#355344" },
-    ember: { name: "Ember", title: "#50352a", bg: "#2b201b", text: "#ead5c6", muted: "#c0a391", strong: "#fff7f0", accent: "#ffa867", warning: "#ffd17f", danger: "#ff9696", track: "#5b4234" },
-    amethyst: { name: "Amethyst", title: "#423052", bg: "#251a31", text: "#e0d2ef", muted: "#b8a0cb", strong: "#fcf5ff", accent: "#d2a0ff", warning: "#f2c37c", danger: "#ff95ba", track: "#514064" },
-    paper: { name: "Paper", title: "#c9d8df", bg: "#f4f7f9", text: "#263b48", muted: "#536b7c", strong: "#122936", accent: "#087b69", warning: "#915500", danger: "#b42640", track: "#d0dce3" }
+    ocean: { name: "Ocean", title: "#243b4c", bg: "#15232e", text: "#c8d6df", muted: "#8ca5b5", strong: "#f1f7fa", accent: "#67d5bf", warning: "#ffba70", danger: "#ff8895", track: "#304552", node: "#c792ea" },
+    midnight: { name: "Midnight", title: "#202744", bg: "#101426", text: "#d0d7ee", muted: "#9caacb", strong: "#f3f5ff", accent: "#8ba8ff", warning: "#f5be7b", danger: "#ff8f9f", track: "#2d3655", node: "#ffd166" },
+    graphite: { name: "Graphite", title: "#383b40", bg: "#202226", text: "#d9dce1", muted: "#a3a9b3", strong: "#ffffff", accent: "#b4d3e5", warning: "#f7bd77", danger: "#ff929a", track: "#464b54", node: "#6ee7d0" },
+    forest: { name: "Forest", title: "#234338", bg: "#132a21", text: "#cfe3d6", muted: "#98bba8", strong: "#f3fff5", accent: "#88d99a", warning: "#eec477", danger: "#ff9294", track: "#355344", node: "#8ecfff" },
+    ember: { name: "Ember", title: "#50352a", bg: "#2b201b", text: "#ead5c6", muted: "#c0a391", strong: "#fff7f0", accent: "#ffa867", warning: "#ffd17f", danger: "#ff9696", track: "#5b4234", node: "#5eead4" },
+    amethyst: { name: "Amethyst", title: "#423052", bg: "#251a31", text: "#e0d2ef", muted: "#b8a0cb", strong: "#fcf5ff", accent: "#d2a0ff", warning: "#f2c37c", danger: "#ff95ba", track: "#514064", node: "#9ce09c" },
+    paper: { name: "Paper", title: "#c9d8df", bg: "#f4f7f9", text: "#263b48", muted: "#536b7c", strong: "#122936", accent: "#087b69", warning: "#915500", danger: "#b42640", track: "#d0dce3", node: "#8250df" }
 };
+const WORKFLOW_HEADER_TOOLTIPS = {
+    browser: "Open the browser panel in a new window",
+    panel: "Open the desktop panel (local machine only)",
+    settings: "Workflow ETA settings"
+};
+function workflowHeaderButtonAt(x, y, width) {
+    if (y < 8 || y > 36) return null;
+    if (x >= width - 110 && x <= width - 82) return "browser";
+    if (x >= width - 78 && x <= width - 50) return "panel";
+    if (x >= width - 46 && x <= width - 18) return "settings";
+    return null;
+}
 // Dedicated high-contrast log palettes; semantic colors are independent of UI accents.
 const WORKFLOW_LOG_PALETTES = {
     ocean: {info:"#b8cedd", run:"#8fcaff", node:"#8de0d0", success:"#a7e995", timing:"#dbc0ff", warning:"#ffd08a", error:"#ff9da9"},
@@ -90,7 +103,7 @@ function tickWorkflowBarAnimation(timestamp) {
     scheduleWorkflowBarAnimation();
 }
 function drawWorkflowProgressBar(ctx, node, theme, color, width, fraction, running) {
-    const x = 18, y = 279, height = 7, total = width - 36, filled = total * fraction;
+    const x = 18, y = 279, height = 14, total = width - 36, filled = total * fraction;
     ctx.fillStyle = theme.track; ctx.fillRect(x, y, total, height);
     ctx.fillStyle = color; ctx.fillRect(x, y, filled, height);
     const style = workflowBarAnimation(node.properties?.bar_animation);
@@ -169,7 +182,9 @@ function workflowLogRows(node, width) {
 function drawWorkflowLogs(ctx,node,theme,width,height,text) {
     const visible = Boolean(node.properties?.logs_visible);
     const toggleY = height-36;
-    text(visible ? "Verbose log" : "Show verbose log",18,height-16,"11px sans-serif",theme.muted);
+    ctx.textAlign="right";
+    text("Detailed Data",width-54,height-16,"11px sans-serif",theme.muted);
+    ctx.textAlign="left";
     ctx.fillStyle = visible ? theme.accent : theme.track;
     ctx.fillRect(width-46,toggleY,28,28);
     text(visible ? "▾" : "≡",width-40,toggleY+20,"19px sans-serif",visible ? theme.bg : theme.strong);
@@ -369,6 +384,15 @@ function openWorkflowETASettings(node) {
     }
     animations.value = workflowBarAnimation(node.properties.bar_animation);
     animationLabel.append(animations); dialog.append(animationLabel);
+    const copyLabel = make("label");
+    copyLabel.style.cssText = "display:flex;align-items:center;gap:8px;margin-top:18px;cursor:pointer";
+    const copyToggle = make("input");
+    copyToggle.type = "checkbox";
+    copyToggle.checked = typeof latest.copy_to_log === "boolean" ? latest.copy_to_log : node.properties.copy_to_log !== false;
+    copyToggle.setAttribute("aria-label", "Copy to comfyui.log");
+    copyLabel.append(copyToggle, make("span", "Copy to comfyui.log"));
+    dialog.append(copyLabel);
+    copyToggle.addEventListener("change", () => node.setWorkflowCopyToLog(copyToggle.checked));
     const diagnosticLabel=make("label","Recent runs to export (1–100)");diagnosticLabel.style.cssText="display:block;margin-top:18px";
     const diagnosticCount=make("input");diagnosticCount.type="number";diagnosticCount.min="1";diagnosticCount.max="100";diagnosticCount.value="20";diagnosticCount.style.cssText=themes.style.cssText;
     diagnosticLabel.append(diagnosticCount);dialog.append(diagnosticLabel);
@@ -404,6 +428,7 @@ function openWorkflowETASettings(node) {
         }
         close.style.cssText += ";padding:5px 9px;border-radius:6px;border:1px solid;cursor:pointer;font:inherit";
         scale.style.accentColor = theme.accent;
+        copyToggle.style.accentColor = theme.accent;
     };
     scale.addEventListener("input", () => { node.setWorkflowUIScale(Number(scale.value)); percentage.textContent = Math.round(Number(scale.value) * 100) + "%"; });
     themes.addEventListener("change", () => { node.setWorkflowETATheme(themes.value); paint(); });
@@ -430,6 +455,9 @@ function updateWorkflowETA(payload) {
     if (!payload || typeof payload !== "object") return;
     mergeWorkflowLogs(payload);
     latest = payload;
+    if (typeof payload.copy_to_log === "boolean") {
+        for (const node of displays) { node.properties ??= {}; node.properties.copy_to_log = payload.copy_to_log; }
+    }
     workflowWatchDialog?._workflowRender?.();
     revision++;
     for (const node of displays) node.setDirtyCanvas(true, false);
@@ -473,6 +501,7 @@ app.registerExtension({
                 this._workflowUIScale = this.properties.ui_scale;
                 this.properties.logs_visible = this.properties.logs_visible === true;
                 this._workflowLogsVisible = this.properties.logs_visible;
+                this.properties.copy_to_log = this.properties.copy_to_log !== false;
                 this._workflowLogScroll = 0;
                 this.size = [540 * this._workflowUIScale,
                     (WORKFLOW_BASE_HEIGHT + (this._workflowLogsVisible ? workflowLogHeight(this) : 0)) * this._workflowUIScale];
@@ -504,6 +533,24 @@ app.registerExtension({
                 this.setDirtyCanvas(true,true);this.graph?.change?.();
                 if (visible) restoreWorkflowETA();
             }
+            setWorkflowCopyToLog(value) {
+                const enabled = value === true;
+                this.properties ??= {};
+                this.properties.copy_to_log = enabled;
+                for (const node of displays) {
+                    if (node === this) continue;
+                    node.properties ??= {};
+                    node.properties.copy_to_log = enabled;
+                }
+                latest.copy_to_log = enabled;
+                this.setDirtyCanvas(true, false);
+                this.graph?.change?.();
+                api.fetchApi("/workflow/eta/copy_log", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ enabled })
+                }).catch(() => {});
+            }
             setWorkflowBarAnimation(value) {
                 this.properties ??= {};
                 this.properties.bar_animation = workflowBarAnimation(value);
@@ -524,7 +571,7 @@ app.registerExtension({
                 const x = pos[0] / scale, y = pos[1] / scale;
                 const width = this.size[0] / scale;
                 const height = this.size[1] / scale;
-                if (!this.flags?.collapsed && x >= width-46 && x <= width-18 && y >= height-36 && y <= height-8) {
+                if (!this.flags?.collapsed && x >= width-140 && x <= width-18 && y >= height-36 && y <= height-8) {
                     this.setWorkflowLogVisible(!this.properties.logs_visible);return true;
                 }
                 if (!this.flags?.collapsed && this.properties.logs_visible && y >= height-40-workflowWatchHeight(this) && y <= height-48) {
@@ -553,17 +600,33 @@ app.registerExtension({
                     else return;
                     this.setDirtyCanvas(true,false);return true;
                 }
-                if (!this.flags?.collapsed && x >= width - 110 && x <= width - 82 && y >= 8 && y <= 36) {
+                const headerButton = this.flags?.collapsed ? null : workflowHeaderButtonAt(x, y, width);
+                if (headerButton === "browser") {
                     openWorkflowETABrowserPanel();
                     return true;
                 }
-                if (!this.flags?.collapsed && x >= width - 78 && x <= width - 50 && y >= 8 && y <= 36) {
+                if (headerButton === "panel") {
                     openWorkflowETAPanel();
                     return true;
                 }
-                if (!this.flags?.collapsed && x >= width - 46 && x <= width - 18 && y >= 8 && y <= 36) {
+                if (headerButton === "settings") {
                     openWorkflowETASettings(this);
                     return true;
+                }
+            }
+            onMouseMove(event, pos) {
+                const hover = this.flags?.collapsed || !Array.isArray(pos) ? null :
+                    workflowHeaderButtonAt(pos[0] / normalizeWorkflowUIScale(this.properties?.ui_scale),
+                        pos[1] / normalizeWorkflowUIScale(this.properties?.ui_scale), this.size[0] / normalizeWorkflowUIScale(this.properties?.ui_scale));
+                if (hover !== (this._workflowHover ?? null)) {
+                    this._workflowHover = hover;
+                    this.setDirtyCanvas(true, false);
+                }
+            }
+            onMouseLeave() {
+                if (this._workflowHover) {
+                    this._workflowHover = null;
+                    this.setDirtyCanvas(true, false);
                 }
             }
             setWorkflowUIScale(value) {
@@ -588,6 +651,7 @@ app.registerExtension({
                 this.color = workflowTheme(this).title; this.bgcolor = workflowTheme(this).bg;
                 this.properties.logs_visible = this.properties.logs_visible === true;
                 this._workflowLogsVisible = this.properties.logs_visible;
+                this.properties.copy_to_log = this.properties.copy_to_log !== false;
                 // Saved heights can contain an old expanded-log layout or load-time
                 // minimum computed before ui_scale/log visibility were restored.
                 // Refit height from the final properties instead of retaining that excess.
@@ -604,11 +668,12 @@ app.registerExtension({
                 if (name === "theme") { this.setWorkflowETATheme(value); return true; }
                 if (name === "bar_animation") { this.setWorkflowBarAnimation(value); return true; }
                 if (name === "logs_visible") { this.setWorkflowLogVisible(value); return true; }
+                if (name === "copy_to_log") { this.setWorkflowCopyToLog(value); return true; }
             }
             getExtraMenuOptions(_, options) {
                 const current = normalizeWorkflowUIScale(this.properties?.ui_scale);
                 options.push({ content: "Settings…", callback: () => openWorkflowETASettings(this) });
-                options.push({ content: this.properties.logs_visible ? "Hide verbose log" : "Show verbose log", callback: () => this.setWorkflowLogVisible(!this.properties.logs_visible) });
+                options.push({ content: this.properties.logs_visible ? "Hide detailed data" : "Show detailed data", callback: () => this.setWorkflowLogVisible(!this.properties.logs_visible) });
                 options.push({
                     content: "Scale UI · " + Math.round(current * 100) + "%",
                     submenu: { options: UI_SCALE_PRESETS.map(scale => ({
@@ -659,6 +724,15 @@ app.registerExtension({
                 ctx.beginPath(); ctx.moveTo(width - 64, 22); ctx.lineTo(width - 64, 16.5); ctx.lineTo(width - 58.5, 25); ctx.stroke();
                 ctx.fillStyle = theme.track; ctx.fillRect(width - 46, 8, 28, 28);
                 text("⚙", width - 41, 29, "20px sans-serif", theme.strong);
+                const hoverTip = this._workflowHover && this.mouseOver !== false ? WORKFLOW_HEADER_TOOLTIPS[this._workflowHover] : null;
+                if (hoverTip) {
+                    ctx.font = "11px sans-serif";
+                    const tipWidth = ctx.measureText(hoverTip).width + 16;
+                    const tipX = Math.max(12, width - 12 - tipWidth), tipY = 40;
+                    ctx.fillStyle = theme.title; ctx.fillRect(tipX, tipY, tipWidth, 20);
+                    ctx.strokeStyle = theme.track; ctx.lineWidth = 1; ctx.strokeRect(tipX + .5, tipY + .5, tipWidth - 1, 19);
+                    text(hoverTip, tipX + 8, tipY + 14, "11px sans-serif", theme.strong);
+                }
                 const remaining = Number.isFinite(p.remaining) ? p.remaining : null;
                 const main = !connected ? "—" : done ? formatWorkflowDuration(p.elapsed) :
                     abort ? "Stopped" : running ? remaining === null || (remaining === 0 && !p.eta_detail) ? "Estimating…" :
@@ -674,14 +748,14 @@ app.registerExtension({
                         p.runtime_scaling?.tier === "runtime-video-profile" ? "Estimated · source-based video projection" :
                         p.runtime_scaling?.tier === "runtime-step-scaled" ? "Estimated · runtime sampler step scaling" : p.workload_approximate ? "Estimated · dimensions unresolved" : p.workload_scaling ? "Estimated · learned " + p.workload_scaling + " scaling" : p.step_scaled ? "Estimated · sampler step scaling" : "Estimated · fallback history") : "Learned from history";
                 const detail=p.eta_detail;
-                const fit=(value)=>workflowWatchFit(ctx,value,width-42);
+                const stripX=width-72;
+                const fit=(value)=>workflowWatchFit(ctx,value,Math.min(width-42,stripX-40));
                 ctx.font="12px sans-serif";
                 text(running ? fit(detail?.timing_message || confidence) : "Updates automatically for every workflow",18,149,"12px sans-serif",theme.muted);
                 // Primary timing card: large value with persistent uncertainty wording.
                 ctx.fillStyle=theme.track;ctx.fillRect(12,158,width-24,100);
                 const confidenceLevel=workflowConfidenceLevel(p);
                 if(confidenceLevel>=0){ctx.globalAlpha=.25;ctx.fillStyle=WORKFLOW_CONFIDENCE_COLORS[confidenceLevel];ctx.fillRect(12,158,width-24,100);ctx.globalAlpha=1;}
-                const stripX=width-72;
                 for(let step=0;step<5;step++){
                     const level=4-step;
                     const y=158+step*20;
@@ -693,9 +767,15 @@ app.registerExtension({
                 }
                 ctx.globalAlpha=1;
                 ctx.textAlign="center";
+                text("ETA confidence",stripX+30,154,"bold 10px sans-serif",theme.muted);
+                for(let step=0;step<5;step++){
+                    const level=4-step, y=158+step*20;
+                    const active=confidenceLevel>=0 && level===confidenceLevel;
+                    ctx.globalAlpha=active?1:(confidenceLevel>=0?0.35:0.85);
+                    text(WORKFLOW_CONFIDENCE_EMOJIS[level],stripX-16,y+15,"13px sans-serif",theme.strong);
+                }
+                ctx.globalAlpha=1;
                 text("+",stripX+30,174,"bold 14px sans-serif","#10181c");
-                text("ETA",stripX+30,202,"bold 12px sans-serif","#10181c");
-                text("confidence",stripX+30,216,"10px sans-serif","#10181c");
                 text("−",stripX+30,250,"bold 14px sans-serif","#10181c");
                 ctx.textAlign="left";
                 const full=running ? (detail?(Number.isFinite(detail.provisional_remaining)?detail.provisional_remaining:null):remaining) : done?p.elapsed:null;
@@ -722,7 +802,7 @@ app.registerExtension({
                 ctx.font = "12px sans-serif";
                 let fitted = label;
                 while (fitted && ctx.measureText(fitted).width > width - 45) fitted = fitted.slice(0, -1);
-                text(fitted === label ? fitted : fitted + "…", 18, 358, "12px sans-serif", theme.muted);
+                text(fitted === label ? fitted : fitted + "…", 18, 358, "bold 12px sans-serif", theme.node);
                 const started=Number.isFinite(p.start_ts)?new Date(p.start_ts*1000).toLocaleString(undefined,{
                     year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"}):"—";
                 text("Started: "+started,18,380,"12px sans-serif",theme.text);

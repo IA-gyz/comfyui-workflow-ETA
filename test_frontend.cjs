@@ -66,7 +66,9 @@ expectCard({state:"running", remaining:65, elapsed:3, confidence:"estimated", fr
 expectCard({state:"running", remaining:65, elapsed:3, confidence:"learned", tiers:{"node-exact":2}, fraction:.05}, "#1a9e4b");
 expectCard({state:"running", remaining:65, elapsed:3, confidence:"learned", tiers:{"node-class":2}, fraction:.05}, "#9ce09c");
 labels.length=0; node.onDrawForeground(ctx);
-assert(labels.includes("ETA") && labels.includes("confidence") && labels.includes("+") && labels.includes("\u2212"), "gradient strip labels: "+labels.slice(-6));
+assert(labels.includes("ETA confidence") && labels.includes("+") && labels.includes("\u2212") && !labels.includes("ETA") && !labels.includes("confidence"), "ladder labels: ETA confidence above the blocks, + / \u2212 kept: "+labels.slice(-8));
+const ladderEmojis=vm.runInContext("WORKFLOW_CONFIDENCE_EMOJIS",sandbox);
+assert(ladderEmojis.length===5 && ladderEmojis.every(e=>labels.includes(e)), "one smiley per confidence level: "+labels.filter(l=>ladderEmojis.includes(l)));
 const stripX = node.size[0]/node.properties.ui_scale - 72;
 cardRects.length = 0; node.onDrawForeground(ctx);
 const ladder = () => cardRects.filter(r => r[2]===stripX && r[5]===20).map(r => [r[0], r[1], r[3]]);
@@ -96,6 +98,55 @@ labels.length=0;
 emit("workflow.eta", {state:"running", remaining:65, elapsed:3, confidence:"estimated", fraction:.05, nodes_done:2, nodes_total:8});
 node.onDrawForeground(ctx);
 assert(labels.includes("≈ 1m 5s") && !labels.some(l=>l.includes("–")), "full estimate stays a point value");
+// UI refinements: ETA confidence label above the ladder, per-level smileys, taller progress bar,
+// per-theme active-node highlight, header-button tooltips, right-side "Detailed Data" toggle.
+const stripXNow = node.size[0]/node.properties.ui_scale - 72;
+const cap=[]; const prevFillText=ctx.fillText;
+ctx.fillText=function(t,x,y){ labels.push(t); cap.push({t,x,y,color:this.fillStyle,font:this.font}); };
+emit("workflow.eta",{state:"running",remaining:65,elapsed:3,confidence:"learned",tiers:{"node-exact":2},fraction:.4,nodes_done:2,nodes_total:8,node:"6",node_class:"KSampler"});
+node.onDrawForeground(ctx);
+const etaLabel=cap.find(r=>r.t==="ETA confidence");
+assert(etaLabel && etaLabel.y===154 && etaLabel.x===stripXNow+30 && etaLabel.y<158, "ETA confidence text above the colored ladder: "+JSON.stringify(etaLabel));
+assert(cap.some(r=>r.t==="+"&&r.y===174) && cap.some(r=>r.t==="\u2212"&&r.y===250), "+ and \u2212 markers stay on the ladder");
+const emojis=vm.runInContext("WORKFLOW_CONFIDENCE_EMOJIS",sandbox);
+assert(cap.filter(r=>emojis.includes(r.t)).length===5, "smiley drawn beside every ladder rung");
+const currentLabel=cap.find(r=>r.t==="Current: KSampler (#6)");
+assert(currentLabel && currentLabel.font==="bold 12px sans-serif" && currentLabel.color===vm.runInContext("WORKFLOW_ETA_THEMES.ocean.node",sandbox), "active node name highlighted: "+JSON.stringify(currentLabel));
+for(const themeName of ["ocean","midnight","graphite","forest","ember","amethyst","paper"]){
+    node.setWorkflowETATheme(themeName); cap.length=0; node.onDrawForeground(ctx);
+    const themed=cap.find(r=>r.t==="Current: KSampler (#6)");
+    assert(themed && themed.color===vm.runInContext("WORKFLOW_ETA_THEMES["+JSON.stringify(themeName)+"].node",sandbox), themeName+" active-node highlight color: "+(themed&&themed.color));
+}
+node.setWorkflowETATheme("ocean");
+const barFills=[]; const prevFillRect=ctx.fillRect;
+ctx.fillRect=function(...a){ barFills.push(a); return prevFillRect.apply(this,a); };
+node.onDrawForeground(ctx);
+ctx.fillRect=prevFillRect;
+assert(barFills.some(a=>a[0]===18&&a[1]===279&&a[2]>0&&a[3]===14), "progress bar height doubled to 14px: "+JSON.stringify(barFills.filter(a=>a[1]===279)));
+const headerTips=[[node.size[0]-96,"Open the browser panel in a new window"],[node.size[0]-64,"Open the desktop panel (local machine only)"],[node.size[0]-30,"Workflow ETA settings"]];
+for(const [tx,tip] of headerTips){
+    node.onMouseMove({},[tx,22]); labels.length=0; node.onDrawForeground(ctx);
+    assert(labels.includes(tip), "tooltip on header button at x="+tx+": "+labels.slice(-3));
+}
+node.onMouseMove({},[100,200]); labels.length=0; node.onDrawForeground(ctx);
+assert(!headerTips.some(([,tip])=>labels.includes(tip)), "no tooltip away from the header buttons");
+node.onMouseMove({},[node.size[0]-30,22]); node.onMouseLeave(); labels.length=0; node.onDrawForeground(ctx);
+assert(!labels.includes("Workflow ETA settings"), "tooltip cleared on mouse leave");
+ctx.fillText=prevFillText;
+const uiNode=new NodeType(); uiNode.onNodeCreated(); uiNode.onAdded();
+const uiCap=[]; ctx.fillText=function(t,x,y){ labels.push(t); uiCap.push({t,x,y}); };
+uiNode.onDrawForeground(ctx);
+const ddLabel=uiCap.find(r=>r.t==="Detailed Data");
+assert(ddLabel && ddLabel.x===uiNode.size[0]-54 && ddLabel.y===uiNode.size[1]-16, "Detailed Data label on the right next to its button: "+JSON.stringify(ddLabel));
+assert(!uiCap.some(r=>/verbose log/i.test(r.t)), "old verbose-log toggle label removed");
+uiNode.onMouseDown({button:0},[uiNode.size[0]-120,uiNode.size[1]-20]);
+assert(uiNode.properties.logs_visible===true, "clicking the label toggles detailed data too");
+const uiMenu=[]; uiNode.getExtraMenuOptions(null,uiMenu);
+assert(uiMenu.some(i=>i.content==="Hide detailed data") && !uiMenu.some(i=>/verbose log/i.test(i.content)), "context menu uses the new name");
+ctx.fillText=prevFillText;
+uiNode.onRemoved();
+console.log("PASS: ETA confidence label above the ladder with smileys, per-theme active-node color, header tooltips, 14px progress bar, right-side Detailed Data toggle");
+
 openedWindows.length = 0;
 node.onMouseDown({button:0}, [node.size[0] - 96, 22]);
 assert(openedWindows.length === 1 && openedWindows[0][0] === "/workflow/eta/panel" && openedWindows[0][1] === "workflow-eta-panel", "browser panel button opens /workflow/eta/panel: " + JSON.stringify(openedWindows));
@@ -174,6 +225,33 @@ assert(saved.properties.theme === "paper" && saved.bgcolor === settingsNode.bgco
 settingsNode.onRemoved();assert(!dialog.isConnected && settingsNode._workflowSettingsDialog === null);
 saved.setWorkflowETATheme("invalid");assert(saved.properties.theme === "ocean");
 console.log("PASS: scaled gear hit area, settings slider, seven themes, live palette, workflow persistence, removal cleanup");
+// "Copy to comfyui.log" toggle in the settings dialog drives the backend console flag.
+const copyNode = new NodeType(); copyNode.onNodeCreated(); copyNode.onAdded();
+const copyCalls = [];
+const previousCopyFetch = api.fetchApi;
+api.fetchApi = async (...args) => { copyCalls.push(args); return { ok: true, json: async () => ({ ok: true, copy_to_log: false }) }; };
+copyNode.onMouseDown({button:0},[copyNode.size[0]-30,20]);
+const copyDialog = copyNode._workflowSettingsDialog;
+const findCheckbox = root => root.tagName === "input" && root.type === "checkbox" ? root : root.children.map(findCheckbox).find(Boolean);
+const checkbox = findCheckbox(copyDialog);
+const copyLabel = copyDialog.children.find(c => c.tagName === "label" && c.children.includes(checkbox));
+assert(checkbox && copyLabel && copyLabel.children.some(e => e.textContent === "Copy to comfyui.log"), "settings has a 'Copy to comfyui.log' checkbox");
+assert(checkbox.attrs["aria-label"] === "Copy to comfyui.log");
+assert(checkbox.checked === true, "toggle defaults to ON");
+const mirrorNode = new NodeType(); mirrorNode.onNodeCreated(); mirrorNode.onAdded();
+checkbox.checked = false; checkbox.dispatch("change");
+assert(copyNode.properties.copy_to_log === false && mirrorNode.properties.copy_to_log === false, "toggle mirrors to every display");
+assert(copyCalls.some(c => c[0] === "/workflow/eta/copy_log" && c[1].method === "POST" && c[1].body === JSON.stringify({enabled:false})), "toggle posts to /workflow/eta/copy_log: " + JSON.stringify(copyCalls));
+emit("workflow.eta", {state:"idle", copy_to_log:true});
+assert(copyNode.properties.copy_to_log === true && mirrorNode.properties.copy_to_log === true, "server payload syncs the toggle on every display");
+copyNode.onConfigure();
+copyNode.onPropertyChanged("copy_to_log", false);
+assert(copyNode.properties.copy_to_log === false, "property changes route through the toggle");
+assert(copyCalls.some(c => c[1].body === JSON.stringify({enabled:false})), "property change posts enabled:false");
+api.fetchApi = previousCopyFetch;
+copyNode.onRemoved(); mirrorNode.onRemoved();
+console.log("PASS: settings 'Copy to comfyui.log' toggle posts the backend flag, mirrors all displays and syncs from server payloads");
+
 
 const panelNode = new NodeType(); panelNode.onNodeCreated(); panelNode.onAdded();
 cardRects.length = 0; panelNode.onDrawForeground(ctx);
