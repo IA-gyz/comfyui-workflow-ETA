@@ -79,6 +79,8 @@ Run the tests with PySide6 available:
 QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s . -p 'test_*.py' -v
 ```
 
+CI runs `python Workflow_ETA_Panel/test_panel.py` from the repository root on every push; without PySide6 the Qt tests skip automatically and the model/launcher tests still run.
+
 Tests cover estimate handling, partial/completed/aborted states, stale snapshots versus long steps, URL validation, launcher generation, single-instance locks, themes, compact mode/settings, asynchronous HTTP polling, deadlines, reconnection, reply-size limits and canceled requests. Headless Qt rendering is checked; this does not substitute for a real KDE Wayland session.
 
 Implementation references: [Qt asynchronous networking](https://doc.qt.io/qtforpython-6/PySide6/QtNetwork/QNetworkAccessManager.html), [native window movement](https://doc.qt.io/qtforpython-6/PySide6/QtGui/QWindow.html), [desktop launcher format](https://specifications.freedesktop.org/desktop-entry/1.2/exec-variables.html), [Arch pyside6](https://archlinux.org/packages/extra/x86_64/pyside6/).
