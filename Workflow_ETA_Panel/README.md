@@ -2,23 +2,25 @@
 
 A movable desktop companion for the Workflow ETA ComfyUI extension, designed for KDE Plasma and Wayland. The panel reads the same status and timing history used by the ComfyUI node; it does not create another estimator or start/stop generations.
 
-## Install on CachyOS / Arch Linux
+## Requirements (CachyOS / Arch Linux)
 
-Install the system Qt Python binding if you do not already have it:
+The panel needs the system Qt Python binding. ComfyUI's own virtual environment does not need it:
 
 ```bash
 sudo pacman -S pyside6
 ```
 
-Extract this ZIP, open a terminal in its `Workflow_ETA_Panel` folder and run:
+## Opening the panel
+
+The panel ships inside the Workflow ETA extension folder and runs from there, so it is always the same version as the extension. The clock button on the **Workflow ETA** node (next to the settings gear) starts it, using the first Python interpreter that can import PySide6 (ComfyUI's, then the system `python3`). The panel follows the server the button was clicked on: ComfyUI on port 8188 and a second instance on 8288 each get their own panel, with separate window titles, settings and single-instance locks. Clicking again activates the existing window. If the panel cannot start, ComfyUI shows the reason as a notification.
+
+Optional: add a KDE application-launcher entry and icon (no sudo; it points at this folder, so run it again if you move the extension):
 
 ```bash
 python3 install.py
 ```
 
-Find **Workflow ETA Panel** in KDE's application launcher. You can pin its running icon to the task manager. The installer copies the app to your user application-data directory and creates a matching icon and desktop entry; it does not require sudo. Use the same Python interpreter for installation and execution, with PySide6 available to it. No package installation is performed by the installer.
-
-Once installed, the clock button on the **Workflow ETA** node in ComfyUI (next to the settings gear) opens this panel; if it is already running, the existing window is activated instead.
+Find **Workflow ETA Panel** in KDE's application launcher and pin its running icon if you like. A copy installed by an older version of this installer is removed automatically.
 
 To run without installation:
 
@@ -26,7 +28,7 @@ To run without installation:
 python3 workflow_eta_panel.py
 ```
 
-ComfyUI must have Workflow ETA installed and enabled. The latest available extension package is v0.2.13; no extension update is required for this panel. Default server: `http://127.0.0.1:8188`.
+ComfyUI must have Workflow ETA installed and enabled. Default server: `http://127.0.0.1:8188`.
 
 ## Controls and display
 
@@ -35,7 +37,8 @@ ComfyUI must have Workflow ETA installed and enabled. The latest available exten
 - **Expanded view:** expected total, full start/finish date and time, current node, completed/cached counts and prediction/uncertainty explanation.
 - **↑:** keep the window above other windows. This is a window-manager hint, subject to KDE policy.
 - **▾ / ▸:** switch expanded/compact views.
-- **⚙:** server URL, refresh interval (1–10 seconds), seven themes, Scale UI slider with percentage input (25–200%, saved between launches), opacity (40–100%), keep-above and native title-bar preferences.
+- **⚙:** server URL, refresh interval (1–10 seconds), Scale UI slider with percentage input (25–200%, saved between launches), opacity (40–100%), keep-above and native title-bar preferences.
+- **Colours:** the panel always uses the theme chosen in the Workflow ETA node and follows it live when it changes; it has no theme setting of its own. The last theme is remembered so the panel opens in the right colours before it has heard from the server. If ComfyUI has no Workflow ETA node on screen yet, the last known theme (Ocean on a first run) is used.
 - **Drag:** use the native title bar or the WORKFLOW ETA heading. Resize from the window edge or bottom-right grip.
 - **Open ComfyUI:** open the configured server in your default browser.
 
@@ -45,7 +48,7 @@ Only one panel runs per user. Launching again requests activation of the existin
 python3 workflow_eta_panel.py --demo
 ```
 
-You can set the URL at launch (close an existing panel first) or use Settings:
+You can set the URL at launch or use Settings. Each server port has its own panel instance; a server on a port other than 8188 gets its own settings file, started from the 8188 panel's look:
 
 ```bash
 python3 workflow_eta_panel.py --url http://127.0.0.1:8188 --compact
@@ -53,7 +56,7 @@ python3 workflow_eta_panel.py --url http://127.0.0.1:8188 --compact
 
 ## Estimates and failure states
 
-The app polls `GET /workflow/eta/status` asynchronously. Requests never overlap, have a four-second deadline, and accept at most 8 MiB. HTTP errors, missing extensions, malformed data and disconnects appear in the panel. It retries automatically. Credentials in URLs are rejected; authenticated browser/proxy sessions are not imported.
+The app polls `GET /workflow/eta/status?compact=1` asynchronously (the compact form leaves out the node inspector's data and the log lines, which the panel never uses; an older extension ignores the flag and sends everything). Requests never overlap, have a four-second deadline, and accept at most 8 MiB. HTTP errors, missing extensions, malformed data and disconnects appear in the panel. It retries automatically. Credentials in URLs are rejected; authenticated browser/proxy sessions are not imported.
 
 Between fresh responses, the display interpolates the running countdown and elapsed time using a monotonic clock. It freezes the large timer on connection failure or when a running server snapshot stops updating for at least ten seconds. A long first sampling step is not itself stale: a working Workflow ETA server continues to update elapsed time. Completed runtimes never count down. Unpriced nodes and provisional estimates remain explicit; a subtotal is never silently substituted for a missing full projection. The progress bar is an estimate of whole-workflow progress, not the sampler's step-completion percentage.
 
@@ -69,7 +72,7 @@ From the extracted folder:
 python3 install.py --uninstall
 ```
 
-The launcher and installed application files are removed. Display settings are retained at the standard Qt settings location, normally `~/.config/WorkflowETA/workflow-eta-panel.conf`. Your ComfyUI history and diagnostic files are never modified.
+The launcher entry, icon and any copy left by an older installer are removed. Display settings are retained at the standard Qt settings location, normally `~/.config/WorkflowETA/workflow-eta-panel.conf` (plus `workflow-eta-panel-<port>.conf` for other ports). Your ComfyUI history and diagnostic files are never modified.
 
 ## Validation
 
