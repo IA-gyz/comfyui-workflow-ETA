@@ -33,7 +33,7 @@ Buffers are kept in memory only and reset when the ComfyUI backend restarts;
 log contents are not saved in the workflow or timing database. Browser reloads
 and opening the panel restore the backend's retained buffer through the status
 endpoint. WebSocket updates send only new entries. Logging into this buffer
-also works with WORKFLOW_ETA_VERBOSE=0, which disables console printing only. The node settings additionally offer a runtime "Copy to comfyui.log" toggle for the same switch (see v0.2.36).
+also works with WORKFLOW_ETA_VERBOSE=0, which disables console printing only. The node settings additionally offer a "Copy to comfyui.log" toggle for the same switch (see v0.2.36); a choice made there is saved and takes precedence over this variable.
 
 ## Empirical batch and resolution estimates (v0.2.2)
 
@@ -146,7 +146,9 @@ The panel contains a **Scale UI** slider (50%–300%, in 5% increments) and a
 **Theme** dropdown with seven palettes: Ocean (default), Midnight, Graphite,
 Forest, Ember, Amethyst and Paper. Paper is a light theme.
 Changes apply immediately to the node. Both properties are saved per node
-with the workflow. Close the panel with its close button, Escape, or a click
+with the workflow. The node's theme is shared: the desktop panel and the
+browser panel page always use it (see "One theme for the node and its panels"
+below); neither has a theme setting of its own. Close the panel with its close button, Escape, or a click
 on the backdrop. The panel closes automatically when its node is removed.
 The right-click **Settings…** entry provides another way to open the panel.
 
@@ -211,9 +213,28 @@ Completed runs remain visible until the next run starts.
 
 The status endpoint /workflow/eta/status restores the latest state on browser
 load or reconnection. Normal updates arrive through workflow.eta WebSocket events.
+`/workflow/eta/status?compact=1` is the same state without the node inspector's watched data and
+the log lines (see "Resource use" below); the desktop panel and the browser panel page use it.
 The clock button on the WorkflowETA node (next to the settings gear) calls
-POST /workflow/eta/open_panel, which opens the installed Workflow ETA Panel
-desktop companion (loopback clients only); see Workflow_ETA_Panel/.
+POST /workflow/eta/open_panel, which starts the Workflow ETA Panel desktop
+companion bundled in Workflow_ETA_Panel/ (loopback clients only). The panel is
+pointed at the server that received the request, runs with the first interpreter
+that can import PySide6 (ComfyUI's venv usually cannot; the system python3 is
+tried too), and a launch failure is returned to the node and shown as a toast.
+No separate install step is needed.
+
+### One theme for the node and its panels
+
+The node reports its theme with `POST /workflow/eta/theme` (body
+`{"theme": "forest"}`) when it loads and whenever you change it. The server keeps
+the last theme (also in `theme.json` beside the history database, so a panel opened
+before the page has loaded still matches), includes it as `theme` in
+`/workflow/eta/status`, and pushes a `workflow.eta.theme` event. The desktop panel and the
+browser panel page follow it live. With several Workflow ETA nodes in one workflow the most
+recently loaded or changed node decides. The request is validated against the seven known
+themes, so it is not restricted to local clients. The three palette tables (`js/workflow_eta.js`,
+`Workflow_ETA_Panel/panel_model.py`, `workflow_eta_tracker.py`) are kept identical by
+`test_panel_contract.py`.
 
 ## WorkflowETAHistory and limitations
 
@@ -394,6 +415,10 @@ Missing estimates remain null. Interrupted runs retain completed-node durations,
 
 Full prompt strings and paths are deliberately retained for review; inspect them before sharing. Common explicit credential keys are redacted, but arbitrary free text is not guaranteed to be secret-free. Media data URLs, binary/tensor values and media files are excluded. Strings over 1 MiB, nesting beyond depth 64 and lists beyond 20,000 entries are explicitly truncated. Each run is limited to 64 MiB, with a recording-limit marker if reached. Raw exports are capped at 64 MiB total; older/not-selected and size-omitted files are reported. Local recordings are not automatically deleted. Disable future recording with `WORKFLOW_ETA_DIAGNOSTICS=0` before restarting ComfyUI. Recording/export failures are reported without stopping ETA tracking.
 
+Retention: the recorder keeps the newest 200 run files and at most 256 MiB in total and deletes older ones when a run starts (never the run being
+written, and nothing while an export is reading the folder). Set `WORKFLOW_ETA_DIAGNOSTICS_KEEP_RUNS` and `WORKFLOW_ETA_DIAGNOSTICS_MAX_MB` to change
+the limits (`0` means unlimited) and `WORKFLOW_ETA_DIAGNOSTICS=0` to turn recording off. Recording costs roughly 3-4 KiB per second of generation.
+
 The diagnostic endpoint is `/workflow/eta/diagnostics/export?limit=20`, available on the same ComfyUI server. It exports owned diagnostic files only, without arbitrary path parameters. The implementation does not collect full server-console logs, media bytes or live GPU memory telemetry.
 
 ## Completed duration highlighting (v0.2.13)
@@ -552,6 +577,14 @@ runtime through `POST /workflow/eta/copy_log`, is reported back in the status
 snapshot and every `workflow.eta` push (`copy_to_log`), and is mirrored across all
 Workflow ETA displays so every settings dialog shows the same state.
 
+The choice is saved on the server (`copy_to_log.json`, beside the history database) and
+applied at every start, so it survives a ComfyUI restart. A saved choice takes precedence
+over `WORKFLOW_ETA_VERBOSE`, which only supplies the default until a choice is made; delete
+`copy_to_log.json` to go back to the environment default. The node always shows what the
+server has: the checkbox changes at once, is confirmed by the server's answer, and goes back
+to its previous value if the request fails. (Before this, the choice lived only in the
+running server and in the workflow, and every ComfyUI start reset it to ON.)
+
 ## Node display refinements (v0.2.35)
 
 The bottom toggle is renamed to **Detailed Data** and sits on the right, directly
@@ -660,3 +693,26 @@ releases owned resources. Browser exports abort when their settings dialog close
 object URLs are cleaned up on failure, and removed nodes release wrapped-log caches.
 Long watched values use bounded binary-search text fitting instead of repeated
 single-character trimming. See MEMORY_REVIEW.md for evidence, bounds and limitations.
+
+## Resource use
+
+Measured on simulated runs (one CPU core of the test machine, the real tracker, history database and diagnostics writer), before and after the
+changes described below:
+
+| | 58 nodes, ~1 min | 220 nodes, ~5 min |
+|---|---|---|
+| Tracker CPU while a run is active | 0.78% -> 0.21% | 2.62% -> 0.76% |
+| Work at run start (once per run) | 64 -> 38 ms | 0.83 -> 0.45 s |
+| Average WebSocket push | 140 -> 11 KiB | 521 -> 31 KiB |
+| Status poll by the desktop panel (every second) | 175 -> 1 KiB | 579 -> 1 KiB |
+| Desktop panel CPU / memory | 1.7% / 68 MB -> ~0.7% / 65 MB | 4.1% / 76 MB -> ~0.7% / 65 MB |
+
+- **Watched data.** The node inspector's rows were 80-94% of every WebSocket push and every status response, although they almost never change
+  within a run. Pushes now carry each part of `watched` only when it changed: the complete data goes out on the first push of a run, on completion
+  and at least every 15 seconds (`watched.full` is `true`), and in between only the changed parts (`watched.full` is `false`). The node merges them;
+  a missing `full` flag (an older extension) means complete. `/workflow/eta/status` always returns the complete data unless `?compact=1` is given.
+- **Run start.** Serializing the watched rows is memoized: every node used to re-add its whole upstream chain, serializing the same values thousands
+  of times on large graphs.
+- **History** (`history.sqlite`) is capped by row counts and levels off; diagnostics files are capped as described above.
+- **Browser.** The node redraws about 30 times per second while a run is active and the tab is visible; choose *Static* under *Progress bar animation* in the node's gear
+  menu to stop that on very large graphs (it also pauses while the node is collapsed, the tab is hidden or reduced motion is requested).

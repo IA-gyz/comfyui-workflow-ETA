@@ -232,6 +232,7 @@ const previousCopyFetch = api.fetchApi;
 api.fetchApi = async (...args) => { copyCalls.push(args); return { ok: true, json: async () => ({ ok: true, copy_to_log: false }) }; };
 copyNode.onMouseDown({button:0},[copyNode.size[0]-30,20]);
 const copyDialog = copyNode._workflowSettingsDialog;
+const latestCopy = () => vm.runInContext("latest.copy_to_log", sandbox);
 const findCheckbox = root => root.tagName === "input" && root.type === "checkbox" ? root : root.children.map(findCheckbox).find(Boolean);
 const checkbox = findCheckbox(copyDialog);
 const copyLabel = copyDialog.children.find(c => c.tagName === "label" && c.children.includes(checkbox));
@@ -476,6 +477,126 @@ console.log("PASS: prominent remaining/elapsed/total typography and expected fin
     assert(pendingSignal.aborted && diagnosticNode._workflowLogCache===null);
     api.fetchApi=previousFetch;
     console.log('PASS: diagnostic export control, run-count validation, ZIP download, URL cleanup and readable server errors');
+
+    // Desktop-panel launch failures reach the user as a toast (server message verbatim); success is silent.
+    const launchNode=new NodeType();launchNode.onNodeCreated();launchNode.onAdded();
+    const toasts=[];app.extensionManager={toast:{add:message=>toasts.push(message)}};
+    const clickPanel=async()=>{launchNode.onMouseDown({button:0},[launchNode.size[0]-64,22]);for(let i=0;i<5;i++)await new Promise(resolve=>setImmediate(resolve));};
+    api.fetchApi=async()=>({ok:false,status:404,json:async()=>({ok:false,error:'needs PySide6 (sudo pacman -S pyside6)'})});
+    await clickPanel();assert(toasts.length===1 && toasts[0].severity==='warn' && toasts[0].detail==='needs PySide6 (sudo pacman -S pyside6)');
+    api.fetchApi=async()=>{throw new Error('offline');};
+    await clickPanel();assert(toasts.length===2 && /offline/.test(toasts[1].detail));
+    api.fetchApi=async()=>({ok:true,json:async()=>({ok:true})});
+    await clickPanel();assert(toasts.length===2);
+    delete app.extensionManager;api.fetchApi=async()=>({ok:false,status:500,json:async()=>({error:'x'})});
+    await clickPanel();assert(toasts.length===2);  // no toast service: console fallback, no throw
+    api.fetchApi=previousFetch;launchNode.onRemoved();
+    console.log('PASS: panel launch failures shown as a ComfyUI toast with the server message; success silent; console fallback');
+
+    // The node reports its colour theme (on add, on change from the settings dialog or property panel, and on graph
+    // load) so every panel can follow it; a failing request never breaks the node.
+    const themeCalls = [];
+    api.fetchApi = async (url, options) => { themeCalls.push({ url, method: options && options.method, body: options && options.body }); return { ok: true, json: async () => ({ ok: true }) }; };
+    const themeNode = new NodeType(); themeNode.onNodeCreated();
+    const lastReport = () => JSON.parse(themeCalls[themeCalls.length - 1].body).theme;
+    themeCalls.length = 0; themeNode.onAdded();
+    assert(themeCalls.length === 1 && themeCalls[0].url === '/workflow/eta/theme' && themeCalls[0].method === 'POST' && lastReport() === 'ocean');
+    themeNode.setWorkflowETATheme('forest'); assert(lastReport() === 'forest');
+    themeNode.properties.theme = 'amethyst'; themeNode.onConfigure(); assert(lastReport() === 'amethyst');  // graph load; also ends the restoring phase
+    themeNode.onPropertyChanged('theme', 'ember'); assert(lastReport() === 'ember');  // property panel edit
+    themeNode.setWorkflowETATheme('not-a-theme'); assert(lastReport() === 'ocean', 'unknown themes are normalised before reporting');
+    api.fetchApi = async () => { throw new Error('offline'); };
+    themeNode.setWorkflowETATheme('paper'); await new Promise(resolve => setImmediate(resolve));  // no unhandled rejection
+    api.fetchApi = () => { throw new Error('sync failure'); };
+    themeNode.setWorkflowETATheme('midnight');  // a synchronous throw is contained too
+    assert(themeNode.properties.theme === 'midnight');
+    api.fetchApi = previousFetch; themeNode.onRemoved();
+    console.log('PASS: node reports its theme on add, change and configure; unknown themes normalised; failures contained');
+
+    // The server sends watched data in full at the start/end of a run and every ~15 s, otherwise only the parts that changed;
+    // the node merges them. A missing `full` flag means an older server, whose data is complete.
+    const peek = () => vm.runInContext("latest.watched", sandbox);
+    const watchedRows = (n) => Array.from({ length: n }, (_, i) => ({ id: String(i), node: "6", class: "KSampler", group: "Literal", parameter: "p" + i, value: String(i), previous: String(i), change: "same" }));
+    const shownCount = (node) => { labels.length = 0; node.onDrawForeground(ctx); const hit = labels.find(text => text.includes("Watched data · ")); return hit && hit.match(/Watched data · (\d+)/)[1]; };
+    const mergeNode = new NodeType(); mergeNode.onNodeCreated(); mergeNode.onAdded(); mergeNode.setWorkflowLogVisible(true);
+    const firstRows = watchedRows(30), nodesA = { "6": { class: "KSampler", predicted: 20 } }, nodesB = { "6": { class: "KSampler", predicted: 18, actual: 17 } };
+    emit("workflow.eta", { state: "running", prompt_id: "w1", watched: { full: true, prompt_id: "w1", baseline_prompt: "w0", rows: firstRows, nodes: nodesA, previous_nodes: { "6": { class: "KSampler" } } } });
+    assert.strictEqual(shownCount(mergeNode), "30");
+    emit("workflow.eta", { state: "running", prompt_id: "w1", watched: { full: false, prompt_id: "w1", nodes: nodesB } });  // only nodes changed
+    assert(peek().rows === firstRows && peek().nodes === nodesB && peek().baseline_prompt === "w0" && peek().previous_nodes["6"], "kept what did not change");
+    assert.strictEqual(shownCount(mergeNode), "30");
+    emit("workflow.eta", { state: "running", prompt_id: "w1", watched: { full: false, prompt_id: "w1", rows: watchedRows(5) } });  // rows changed
+    assert.strictEqual(shownCount(mergeNode), "5");
+    emit("workflow.eta", { state: "running", prompt_id: "w1" });  // the execution_start stub of the same run must not blank the data
+    assert.strictEqual(shownCount(mergeNode), "5");
+    emit("workflow.eta", { state: "running", prompt_id: "w-other" });  // a different run starts clean
+    assert.strictEqual(peek(), undefined);
+    emit("workflow.eta", { state: "running", prompt_id: "w2", watched: { prompt_id: "w2", rows: watchedRows(7), nodes: {}, previous_nodes: {} } });  // older server: no flag, complete
+    assert.strictEqual(shownCount(mergeNode), "7");
+    emit("workflow.eta", { state: "done", prompt_id: "w2", watched: { full: true, prompt_id: "w2", rows: watchedRows(9), nodes: {}, previous_nodes: {} } });
+    assert.strictEqual(shownCount(mergeNode), "9");
+
+    // A partial update with nothing to merge into fetches the complete data once, and is rate limited.
+    const fetched = []; let clock = 1_000_000, statusBody = { watched: { full: true, prompt_id: "w3", rows: watchedRows(12), nodes: {}, previous_nodes: {}, baseline_prompt: null } };
+    const realDate = sandbox.Date; sandbox.Date = class extends realDate { static now() { return clock; } };
+    api.fetchApi = async (url) => { fetched.push(url); return { ok: true, json: async () => statusBody }; };
+    const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(resolve => setImmediate(resolve)); };
+    emit("workflow.eta", { state: "running", prompt_id: "w3" });
+    emit("workflow.eta", { state: "running", prompt_id: "w3", watched: { full: false, prompt_id: "w3", nodes: {} } });
+    assert.strictEqual(peek(), undefined, "nothing to merge into yet");
+    await settle();
+    assert.deepStrictEqual(fetched, ["/workflow/eta/status"]);
+    assert.strictEqual(shownCount(mergeNode), "12", "the fetched complete data is adopted");
+    emit("workflow.eta", { state: "running", prompt_id: "w3", watched: { full: false, prompt_id: "w3", nodes: nodesB } });
+    assert(peek().rows.length === 12 && peek().nodes === nodesB, "later partial updates merge into the fetched data");
+    statusBody = {};  // the server has nothing for us: rate limit and failures must stay contained
+    clock += 500; emit("workflow.eta", { state: "running", prompt_id: "w4" });
+    emit("workflow.eta", { state: "running", prompt_id: "w4", watched: { full: false, prompt_id: "w4", nodes: {} } }); await settle();
+    assert.strictEqual(fetched.length, 1, "no second fetch within 2 s");
+    clock += 2000; emit("workflow.eta", { state: "running", prompt_id: "w4", watched: { full: false, prompt_id: "w4", nodes: {} } }); await settle();
+    assert.strictEqual(fetched.length, 2); assert.strictEqual(peek(), undefined);
+    const quietDebug = console.debug; console.debug = () => {};  // the node logs the contained failure at debug level
+    api.fetchApi = async () => { throw new Error("offline"); };
+    clock += 3000; emit("workflow.eta", { state: "running", prompt_id: "w4", watched: { full: false, prompt_id: "w4", nodes: {} } }); await settle();
+    emit("workflow.eta", { state: "running", prompt_id: "w5", watched: { full: true, prompt_id: "w5", rows: watchedRows(3), nodes: {}, previous_nodes: {} } });
+    clock += 3000; emit("workflow.eta", { state: "running", prompt_id: "w5", watched: { full: false, prompt_id: "w6", nodes: {} } }); await settle();
+    assert.strictEqual(peek(), undefined, "a partial update for another run is never merged into this run's data");
+    console.debug = quietDebug; sandbox.Date = realDate; api.fetchApi = previousFetch; mergeNode.onRemoved();
+    console.log('PASS: partial watched updates merge into the current data; stubs keep the run; older servers stay complete; missing base is fetched once and rate limited');
+
+    // "Copy to comfyui.log" shows what the SERVER has. A failed or refused request used to leave a checkbox that disagreed with the
+    // server, which then snapped back to "checked" on the next update; now it reverts, and the server's answer wins.
+    const settleCopy = async () => { for (let i = 0; i < 6; i++) await new Promise(resolve => setImmediate(resolve)); };
+    const quietWarn = console.warn; console.warn = () => {};
+    emit("workflow.eta", { state: "idle", copy_to_log: true });  // the server's state: ON
+    const copyOwner = new NodeType(); copyOwner.onNodeCreated(); copyOwner.onAdded();
+    copyOwner.onMouseDown({ button: 0 }, [copyOwner.size[0] - 30, 20]);
+    const copyBox = findCheckbox(copyOwner._workflowSettingsDialog);
+    assert(copyBox.checked === true, "the dialog opens with the server's value");
+    api.fetchApi = async () => { throw new Error("offline"); };
+    copyBox.checked = false; copyBox.dispatch("change");
+    assert(copyOwner.properties.copy_to_log === false, "the change is shown at once");
+    await settleCopy();
+    assert(copyOwner.properties.copy_to_log === true && copyBox.checked === true, "a failed request reverts the node and the open dialog");
+    api.fetchApi = async () => ({ ok: false, status: 500, json: async () => ({ ok: false }) });
+    copyBox.checked = false; copyBox.dispatch("change"); await settleCopy();
+    assert(copyOwner.properties.copy_to_log === true && copyBox.checked === true, "a refused request reverts too");
+    api.fetchApi = async () => ({ ok: true, json: async () => ({ ok: true, copy_to_log: true }) });
+    copyBox.checked = false; copyBox.dispatch("change"); await settleCopy();
+    assert(copyOwner.properties.copy_to_log === true && copyBox.checked === true, "the server's answer wins over what was asked");
+    api.fetchApi = async () => ({ ok: true, json: async () => ({ ok: true, copy_to_log: false }) });
+    copyBox.checked = false; copyBox.dispatch("change"); await settleCopy();
+    assert(copyOwner.properties.copy_to_log === false && copyBox.checked === false && latestCopy() === false, "a confirmed change stays");
+    emit("workflow.eta", { state: "idle", copy_to_log: true });
+    assert(copyBox.checked === true, "an open settings dialog follows the server's updates");
+    let releaseSlow; const slowGate = new Promise(resolve => { releaseSlow = resolve; });
+    api.fetchApi = async (url, options) => { const wanted = JSON.parse(options.body).enabled; if (wanted === false) await slowGate; return { ok: true, json: async () => ({ ok: true, copy_to_log: wanted }) }; };
+    copyBox.checked = false; copyBox.dispatch("change");  // slow request
+    copyBox.checked = true; copyBox.dispatch("change");   // newer request answers first
+    await settleCopy(); releaseSlow(); await settleCopy();
+    assert(copyOwner.properties.copy_to_log === true && copyBox.checked === true, "an older, slower answer does not overwrite the newer choice");
+    console.warn = quietWarn; api.fetchApi = previousFetch; copyOwner.onRemoved();
+    console.log('PASS: Copy to comfyui.log shows what the server has: failed or refused requests revert, the server answer wins, open dialogs follow, stale answers are ignored');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 
 const yellowNode=new NodeType();yellowNode.onNodeCreated();

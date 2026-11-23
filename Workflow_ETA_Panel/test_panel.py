@@ -2,7 +2,7 @@ import os
 import io,json,os,sys,tempfile,time,threading,unittest,uuid
 from pathlib import Path
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
-from panel_model import Snapshot,server_url,valid_payload,duration
+from panel_model import Snapshot,server_url,server_port,valid_payload,duration,SUPPORTED_SCHEMA,THEMES as MODEL_THEMES,DEFAULT_THEME
 from install import install,uninstall,exec_quote
 
 class ModelTests(unittest.TestCase):
@@ -22,6 +22,27 @@ class ModelTests(unittest.TestCase):
         p.accept({'state':'running','elapsed':112,'remaining':600,'prompt_id':'a'},12)
         self.assertFalse(p.view(13)['stale']);self.assertEqual(p.view(13)['value'],'9m 59s')
         p.fail('Connection refused');self.assertEqual(p.view(14)['status'],'Disconnected')
+    def test_schema_compatibility(self):
+        base={'state':'running','elapsed':10,'remaining':20,'start_ts':1700000000,'eta_detail':{'provisional_remaining':20}}
+        for extra in ({},{'schema':SUPPORTED_SCHEMA,'version':'0.2.34'},{'schema':0},{'schema':True},{'schema':'9'}):
+            p=Snapshot();p.accept(dict(base,**extra),1);v=p.view(1)
+            self.assertFalse(v['newer'],extra);self.assertNotIn('older',v['badge'])
+        p=Snapshot();p.accept(dict(base,schema=SUPPORTED_SCHEMA,version='0.2.34'),1);self.assertEqual(p.view(1)['extension'],'Workflow ETA v0.2.34')
+        p=Snapshot();p.accept(dict(base,version='<b>x</b>'),1);self.assertEqual(p.view(1)['extension'],'')  # markup never reaches a tooltip
+        p=Snapshot();p.accept(dict(base,schema=SUPPORTED_SCHEMA+1,version='0.9.0'),1);v=p.view(1)
+        self.assertTrue(v['newer']);self.assertEqual(v['badge'],'Panel older than extension');self.assertIn('Workflow ETA v0.9.0',v['message']);self.assertIn('update this panel',v['message'])
+        self.assertEqual(v['value'],'20s')  # the countdown still shows; only a warning is added
+        p.fail('gone');self.assertFalse(p.view(2)['newer'])  # nothing to warn about while offline
+    def test_theme_comes_from_the_status_payload(self):
+        base={'state':'running','elapsed':10,'remaining':20,'start_ts':1700000000,'eta_detail':{'provisional_remaining':20}}
+        for theme in MODEL_THEMES:
+            p=Snapshot();p.accept(dict(base,theme=theme),1);self.assertEqual(p.view(1)['theme'],theme)
+        for bad in (None,'','nope',5,True,['forest'],{'forest':1},'FOREST'):
+            p=Snapshot();p.accept(dict(base,theme=bad),1);self.assertIsNone(p.view(1)['theme'],bad)  # unknown values never reach the stylesheet
+        p=Snapshot();p.accept(base,1);self.assertIsNone(p.view(1)['theme'])  # older extension: no theme field
+        self.assertEqual(DEFAULT_THEME,next(iter(MODEL_THEMES)))
+    def test_server_port(self):
+        self.assertEqual(server_port('http://127.0.0.1:8288'),8288);self.assertEqual(server_port('http://localhost'),80);self.assertEqual(server_port('https://example.test'),443)
     def test_urls_and_bad_fields(self):
         self.assertEqual(server_url(' http://127.0.0.1:8188/ '),'http://127.0.0.1:8188')
         self.assertEqual(server_url('https://host/comfy/'),'https://host/comfy')
@@ -33,18 +54,20 @@ class ModelTests(unittest.TestCase):
     def test_launcher(self):
         with tempfile.TemporaryDirectory(prefix='eta panel ') as tmp:
             desktop=install(tmp);text=desktop.read_text();self.assertIn('StartupWMClass=workflow-eta-panel',text)
-            self.assertIn('"'+tmp+'/',text);self.assertIn('Icon=workflow-eta-panel',text)
+            self.assertIn(str(Path(__file__).resolve().parent/'workflow_eta_panel.py'),text);self.assertIn('Icon=workflow-eta-panel',text)
+            self.assertFalse((Path(tmp)/'workflow-eta-panel'/'workflow_eta_panel.py').exists())  # runs in place, no stale copy
             venv=Path(tmp)/'venv/bin';venv.mkdir(parents=True);(venv/'python').symlink_to(sys.executable)
             desktop=install(tmp,str(venv/'python'));self.assertIn(str(venv/'python'),desktop.read_text())
-            keep=Path(tmp)/'workflow-eta-panel'/'user-note.txt';keep.write_text('keep')
+            legacy=Path(tmp)/'workflow-eta-panel';legacy.mkdir(exist_ok=True);(legacy/'panel_model.py').write_text('old copy');keep=legacy/'user-note.txt';keep.write_text('keep')
+            install(tmp);self.assertFalse((legacy/'panel_model.py').exists())  # a legacy copied file is cleaned up
             uninstall(tmp);self.assertFalse(desktop.exists());self.assertTrue(keep.exists())
         self.assertIn('%%',exec_quote('100% done'));self.assertIn('\\\\$',exec_quote('$HOME'))
 
 try:
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication,QLabel
     from PySide6.QtCore import QSettings,QTimer,QEvent
     from PySide6.QtTest import QTest
-    from workflow_eta_panel import Panel,StatusPoller,SingleInstance,THEMES
+    from workflow_eta_panel import Panel,StatusPoller,SingleInstance,SettingsDialog,THEMES
     QT=True
 except ImportError:QT=False
 
@@ -72,6 +95,24 @@ class QtTests(unittest.TestCase):
             panel.scale=1.4;panel.top=False;panel.save();panel.close()
             restored=Panel(settings,start_polling=False);self.assertTrue(restored.compact);self.assertEqual(restored.scale,1.4);self.assertFalse(restored.top);restored.close()
             panel.deleteLater();restored.deleteLater();self.app.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+    def test_panel_follows_the_node_theme(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            settings=QSettings(tmp+'/panel.ini',QSettings.Format.IniFormat)
+            panel=Panel(settings,start_polling=False);panel.show();QTest.qWait(20)
+            self.assertEqual(panel.theme,DEFAULT_THEME)
+            for key,data in THEMES.items():
+                panel.accept({'state':'idle','theme':key})
+                self.assertEqual(panel.theme,key);self.assertIn(data[1],panel.styleSheet(),key)  # data[1] is the theme's background
+            self.assertEqual(settings.value('theme'),'paper')  # the last one adopted is remembered
+            panel.accept({'state':'idle','theme':'forest'})
+            panel.accept({'state':'idle'});self.assertEqual(panel.theme,'forest')  # a payload without a theme keeps the current one
+            panel.accept({'state':'idle','theme':'not-a-theme'});self.assertEqual(panel.theme,'forest')
+            panel.fail('offline');self.assertEqual(panel.theme,'forest')  # losing the server keeps the colours too
+            dialog=SettingsDialog(panel);self.assertFalse(hasattr(dialog,'theme'),'no theme picker: the node decides')
+            self.assertTrue(any('Follows the Workflow ETA node (Forest)' in label.text() for label in dialog.findChildren(QLabel)))
+            dialog.deleteLater();QTest.qWait(30);panel.save();panel.close()  # let the scheduled layout refits run before closing
+            restored=Panel(settings,start_polling=False);self.assertEqual(restored.theme,'forest')  # next start opens in the last colours
+            restored.close();QTest.qWait(30);panel.deleteLater();restored.deleteLater();self.app.sendPostedEvents(None,QEvent.Type.DeferredDelete)
     def test_kwin_keep_above_bridge(self):
         from workflow_eta_panel import KWinKeepAbove
         from PySide6.QtDBus import QDBusMessage
@@ -113,10 +154,10 @@ class QtTests(unittest.TestCase):
             second=SingleInstance(name,directory=directory);self.assertFalse(second.acquire());first.close()
             third=SingleInstance(name,directory=directory);self.assertTrue(third.acquire());third.close()
     def test_async_poll_errors_reconnect_and_size_limit(self):
-        state={'kind':'slow','requests':0}
+        state={'kind':'slow','requests':0,'paths':[]}
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
-                state['requests']+=1
+                state['requests']+=1;state['paths'].append(self.path)
                 if state['kind']=='slow':time.sleep(.15)
                 code=404 if state['kind']=='404' else 200
                 if state['kind']=='html':body=b'<html>not JSON</html>'
@@ -139,6 +180,8 @@ class QtTests(unittest.TestCase):
             state['kind']='slow';errors.clear();poll.poll();poll.timeout();self.wait(lambda:errors);self.assertIn('4 seconds',errors[0])
             # Canceled old requests must not overwrite a new URL's status.
             state['kind']='ok';results.clear();errors.clear();poll.configure(url,10);poll.configure(url,10);self.wait(lambda:results);self.assertFalse(errors)
+            # The panel never reads the inspector data or the log lines, so it asks for the compact status every time.
+            self.assertEqual(set(state['paths']),{'/workflow/eta/status?compact=1'},state['paths'])
         finally:poll.stop();timer.stop();server.shutdown();server.server_close()
 
 if __name__=='__main__':unittest.main(verbosity=2)

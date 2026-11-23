@@ -16,18 +16,9 @@ try:
         QSlider,QDialogButtonBox,QMessageBox,QPushButton,QFrame,QSizePolicy)
 except ImportError:
     raise SystemExit('PySide6 is required. On CachyOS/Arch: sudo pacman -S pyside6\nThen run this app with the same Python used by install.py.')
-from panel_model import Snapshot,server_url,MAX_REPLY
+from panel_model import Snapshot,server_url,server_port,THEMES,DEFAULT_THEME,MAX_REPLY
 
-VERSION='0.1.0'
-THEMES={
- 'ocean':('Ocean','#15232e','#243b4c','#f1f7fa','#8ca5b5','#67d5bf','#ffba70','#ff8895'),
- 'midnight':('Midnight','#101426','#202744','#f3f5ff','#9caacb','#8ba8ff','#f5be7b','#ff8f9f'),
- 'graphite':('Graphite','#202226','#383b40','#ffffff','#a3a9b3','#b4d3e5','#f7bd77','#ff929a'),
- 'forest':('Forest','#132a21','#234338','#f3fff5','#98bba8','#88d99a','#eec477','#ff9294'),
- 'ember':('Ember','#2b201b','#50352a','#fff7f0','#c0a391','#ffa867','#ffd17f','#ff9696'),
- 'amethyst':('Amethyst','#251a31','#423052','#fcf5ff','#b8a0cb','#d2a0ff','#f2c37c','#ff95ba'),
- 'paper':('Paper','#f4f7f9','#d0dce3','#122936','#536b7c','#087b69','#915500','#b42640')}
-
+VERSION='0.1.4'
 class StatusPoller(QObject):
     received=Signal(dict)
     failed=Signal(str)
@@ -46,7 +37,7 @@ class StatusPoller(QObject):
     def poll(self):
         if self.reply is not None or not self.url:return
         generation=self.generation;self.reason='';body=bytearray()
-        request=QNetworkRequest(QUrl(self.url+'/workflow/eta/status'))
+        request=QNetworkRequest(QUrl(self.url+'/workflow/eta/status?compact=1'))  # an older extension ignores the flag and sends everything
         request.setRawHeader(b'Accept',b'application/json')
         request.setRawHeader(b'Cache-Control',b'no-cache')
         request.setAttribute(QNetworkRequest.Attribute.CacheLoadControlAttribute,QNetworkRequest.CacheLoadControl.AlwaysNetwork)
@@ -158,9 +149,7 @@ class SettingsDialog(QDialog):
         layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form)
         self.url=QLineEdit(panel.url);self.url.setPlaceholderText('http://127.0.0.1:8188');form.addRow('ComfyUI base URL',self.url)
         self.interval=QSpinBox();self.interval.setRange(1,10);self.interval.setSuffix(' seconds');self.interval.setValue(panel.interval);form.addRow('Refresh every',self.interval)
-        self.theme=QComboBox()
-        for key,data in THEMES.items():self.theme.addItem(data[0],key)
-        self.theme.setCurrentIndex(self.theme.findData(panel.theme));form.addRow('Theme',self.theme)
+        theme_note=QLabel('Follows the Workflow ETA node ('+THEMES[panel.theme][0]+')');theme_note.setObjectName('muted');form.addRow('Theme',theme_note)
         scale_row=QWidget();scale_layout=QHBoxLayout(scale_row);scale_layout.setContentsMargins(0,0,0,0)
         self.scale=QSlider(Qt.Orientation.Horizontal);self.scale.setRange(25,200);self.scale.setSingleStep(5);self.scale.setPageStep(25)
         self.scale.setAccessibleName('Scale UI');self.scale.setToolTip('Scale the panel from 25% to 200%. Applied when you save.')
@@ -196,7 +185,8 @@ class Panel(QWidget):
             try:return max(minimum,min(maximum,float(self.settings.value(key,default))))
             except (ValueError,TypeError):return default
         def flag(key,default):return str(self.settings.value(key,str(default))).lower() in ('true','1')
-        self.theme=str(self.settings.value('theme','ocean'));self.theme=self.theme if self.theme in THEMES else 'ocean'
+        # The theme is chosen in the Workflow ETA node and followed from the server; the saved value only seeds the first paint.
+        self.theme=str(self.settings.value('theme',DEFAULT_THEME));self.theme=self.theme if self.theme in THEMES else DEFAULT_THEME
         self.scale=number_setting('scale',1.,.25,2.);self.interval=int(number_setting('interval',1,1,10))
         self.compact=flag('compact',False);self.top=flag('top',True);self.border=flag('border',True)
         self.setWindowOpacity(number_setting('opacity',1.,.4,1.))
@@ -292,6 +282,7 @@ class Panel(QWidget):
         if event.oldSize().width()!=event.size().width():self.schedule_fit()
     def render(self):
         view=self.snapshot.view(time.monotonic(),self.interval);self.last_view=view
+        if view['theme'] and view['theme']!=self.theme:self.adopt_theme(view['theme'])
         _,bg,card,text,muted,accent,warning,danger=THEMES[self.theme]
         tone=accent if view['online'] and view['state']!='aborted' else warning if view['stale'] or view['status']=='Connecting' else danger
         completed='#806000' if self.theme=='paper' else '#ffe066'
@@ -311,7 +302,10 @@ class Panel(QWidget):
         self.counts.setText(view['counts']);self.message.setText(view['message']);self.message.setToolTip(view['message'])
         key=(self.compact,self.scale,view['state'],view['node'],view['message'],view['badge'],view['title'],view['incomplete'],view['partial'])
         if key!=self._height_key:self._height_key=key;self.schedule_fit()
-        self.sync.setText('Updated' if view['online'] else 'Offline');self.sync.setToolTip(self.url+'\n'+view['message'])
+        self.sync.setText('Updated' if view['online'] else 'Offline');self.sync.setToolTip(self.url+(' · '+view['extension'] if view['extension'] else '')+'\n'+view['message'])
+    def adopt_theme(self,key):
+        """Follow the node's theme: restyle now and remember it so the next start opens in the same colours."""
+        self.theme=key;self.settings.setValue('theme',key);self.apply_style()
     def accept(self,payload):self.snapshot.accept(payload,time.monotonic());self.render()
     def fail(self,message):self.snapshot.fail(message);self.render()
     def toggle_top(self,checked):
@@ -324,7 +318,7 @@ class Panel(QWidget):
         if dialog.exec()!=QDialog.DialogCode.Accepted:return
         new_url=server_url(dialog.url.text());changed=new_url!=self.url
         previous_scale=self.scale;previous_size=self.size()
-        self.url=new_url;self.interval=dialog.interval.value();self.theme=dialog.theme.currentData();self.scale=dialog.scale.value()/100
+        self.url=new_url;self.interval=dialog.interval.value();self.scale=dialog.scale.value()/100
         self.top=dialog.top.isChecked();self.border=dialog.border.isChecked();self.setWindowOpacity(dialog.opacity.value()/100)
         self.pin.setChecked(self.top);self.apply_style();self.apply_flags();self.layout().activate()
         ratio=self.scale/previous_scale;self.resize(round(previous_size.width()*ratio),round(previous_size.height()*ratio));self.show()
@@ -377,14 +371,28 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--version',action='version',version='Workflow ETA Panel '+VERSION);parser.add_argument('--url');parser.add_argument('--compact',action='store_true');parser.add_argument('--demo',action='store_true');args=parser.parse_args()
     app=QApplication(['workflow-eta-panel']);app.setApplicationName('workflow-eta-panel');app.setOrganizationName('WorkflowETA');app.setDesktopFileName('workflow-eta-panel')
     icon=QIcon(str(Path(__file__).with_name('workflow-eta-panel.svg')));app.setWindowIcon(icon)
-    settings=QSettings('WorkflowETA','workflow-eta-panel-demo') if args.demo else QSettings()
-    if args.url:
-        try:settings.setValue('server',server_url(args.url))
-        except ValueError as error:parser.error(str(error))
-    if args.compact:settings.setValue('compact',True)
-    guard=SingleInstance('workflow-eta-panel-'+str(os.getuid())+('-demo' if args.demo else ''),app)
+    # One panel per ComfyUI server: the lock, settings file and window title follow the server's port.
+    # Port 8188 keeps the original lock/settings names so existing installs keep their settings.
+    legacy=QSettings('WorkflowETA','workflow-eta-panel')
+    try:url=server_url(args.url) if args.url else server_url(str(legacy.value('server','http://127.0.0.1:8188')))
+    except ValueError as error:
+        if args.url:parser.error(str(error))
+        url='http://127.0.0.1:8188'
+    port=server_port(url);suffix='' if port==8188 else '-'+str(port)
+    if args.demo:settings=QSettings('WorkflowETA','workflow-eta-panel-demo')
+    elif suffix:
+        settings=QSettings('WorkflowETA','workflow-eta-panel'+suffix)
+        if not settings.allKeys():  # first run for this server: start from the default panel's look
+            for key in legacy.allKeys():
+                if key not in ('server','geometry','width','height'):settings.setValue(key,legacy.value(key))
+    else:settings=legacy
+    guard=SingleInstance('workflow-eta-panel-'+str(os.getuid())+('-demo' if args.demo else '')+suffix,app)
     if not guard.acquire():return 0
+    # Only the instance that owns the lock may change saved state; a launch that merely activates must not.
+    settings.setValue('server',url)
+    if args.compact:settings.setValue('compact',True)
     panel=Panel(settings,start_polling=not args.demo)
+    if suffix:panel.setWindowTitle(f'Workflow ETA Panel — :{port}');panel.brand.setText(f'WORKFLOW ETA · :{port}')
     if args.demo:
         demo={'state':'running','prompt_id':'demo','elapsed':246,'remaining':830,'expected_total':1076,'start_ts':time.time()-246,
             'node_class':'SamplerCustomAdvanced','node':'469','nodes_done':9,'nodes_total':14,'nodes_cached':5,'confidence':'estimated','fraction':.23,

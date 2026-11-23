@@ -17,6 +17,17 @@ from pathlib import Path
 SCHEMA = 1
 MAX_RUN_BYTES = 64 * 1024 * 1024
 MAX_EXPORT_BYTES = 64 * 1024 * 1024
+# Retention: every run writes a file, so keep the newest ones within these limits (0 = unlimited). Override with
+# WORKFLOW_ETA_DIAGNOSTICS_KEEP_RUNS and WORKFLOW_ETA_DIAGNOSTICS_MAX_MB.
+DEFAULT_KEEP_RUNS = 200
+DEFAULT_MAX_TOTAL_BYTES = 256 * 1024 * 1024
+
+def _limit_from_environment(name, default, scale=1):
+    try:
+        value = int(os.environ.get(name, ''))
+    except ValueError:
+        return default
+    return value * scale if value >= 0 else default
 _SECRET_KEYS = {'password','passwd','api_key','apikey','access_token','refresh_token','authorization','cookie','cookies','client_secret','secret_key'}
 
 class WorkflowETAExportBusy(RuntimeError):
@@ -56,8 +67,12 @@ def safe(value, depth=0, _budget=None):
     return {'omitted_type':type(value).__name__}
 
 class WorkflowETADiagnostics:
-    def __init__(self,directory):
+    def __init__(self,directory,keep_runs=None,max_total_bytes=None,extension_version=None):
         self.directory=Path(directory);self.directory.mkdir(parents=True,exist_ok=True)
+        # Stamped into every run_start record. The tracker passes WORKFLOW_ETA_VERSION (this module cannot import it).
+        self.extension_version=str(extension_version) if extension_version else 'unknown'
+        self.keep_runs=keep_runs if keep_runs is not None else _limit_from_environment('WORKFLOW_ETA_DIAGNOSTICS_KEEP_RUNS',DEFAULT_KEEP_RUNS)
+        self.max_total_bytes=max_total_bytes if max_total_bytes is not None else _limit_from_environment('WORKFLOW_ETA_DIAGNOSTICS_MAX_MB',DEFAULT_MAX_TOTAL_BYTES,1024*1024)
         self.lock=threading.RLock()
         self.export_gate=threading.Lock()
 
@@ -66,13 +81,44 @@ class WorkflowETADiagnostics:
         run.diagnostic_last_eta=-math.inf
         run.diagnostic_limited=False
         torch=sys.modules.get('torch')
-        self.write(run,'run_start',{'schema':SCHEMA,'extension_version':'0.2.24',
+        self.write(run,'run_start',{'schema':SCHEMA,'extension_version':self.extension_version,
             'environment':{'python':sys.version,'platform':platform.platform(),'device':device,
                 'torch':str(getattr(torch,'__version__','unavailable')),'cuda':str(getattr(getattr(torch,'version',None),'cuda',None))},
             'graph':run.graph,'outputs_to_execute':getattr(run,'outputs',None),'reachable_nodes':sorted(run.reach),'model_lineage':run.model_map,
             'cold_by_node':run.node_cold,'machine_at_start':getattr(run,'machine_start',None),'resident_at_start':getattr(run,'resident0',None),'video_metadata':run.video_sources,
             'step_plans':run.step_plans,'shape_plans':run.shape_plans,
             'predictions':run.preds,'watched_parameters':run.watch_rows})
+        self.prune(run.diagnostic_file)
+
+    def prune(self,current=None):
+        """Delete the oldest run files beyond the retention limits; returns how many were removed.
+
+        Newest files are kept first. The run being written is never deleted, and nothing is deleted while an
+        export is reading the directory (the export holds the same gate).
+        """
+        if not self.keep_runs and not self.max_total_bytes:return 0
+        if not self.export_gate.acquire(blocking=False):return 0
+        try:
+            files=[]
+            for path in self.directory.glob('run_*.jsonl'):
+                try:
+                    if path.is_symlink() or not path.is_file():continue
+                    info=path.stat()
+                except OSError:continue
+                files.append((info.st_mtime,path.name,info.st_size,path))
+            files.sort(reverse=True)
+            kept=kept_bytes=removed=0
+            for stamp,name,size,path in files:
+                over=(self.keep_runs and kept>=self.keep_runs) or (self.max_total_bytes and kept_bytes+size>self.max_total_bytes)
+                if over and path!=current:
+                    try:
+                        path.unlink();removed+=1
+                    except OSError:pass
+                    continue
+                kept+=1;kept_bytes+=size
+            return removed
+        finally:
+            self.export_gate.release()
 
     def write(self,run,kind,data,elapsed=None):
         path=getattr(run,'diagnostic_file',None)

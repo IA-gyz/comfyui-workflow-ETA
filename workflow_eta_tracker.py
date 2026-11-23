@@ -7,6 +7,7 @@ websocket messages. Feeds the virtual display and logs predictions versus actual
 
 ComfyUI-specific imports are lazy so this module can be tested standalone.
 """
+import json
 import os
 import math
 from collections import deque
@@ -24,6 +25,30 @@ except ImportError:  # standalone testing
 VERBOSE = os.environ.get("WORKFLOW_ETA_VERBOSE", "1") != "0"
 PUSH_EVENT = "workflow.eta"
 PING_EVENT = "workflow.eta.ping"
+# Colour themes shared by the node, the desktop panel and the browser panel page. The node reports its choice
+# (POST /workflow/eta/theme); every panel then follows it. test_panel_contract.py fails if the three tables
+# (js/workflow_eta.js, Workflow_ETA_Panel/panel_model.py, this one) drift apart.
+THEME_EVENT = "workflow.eta.theme"
+WORKFLOW_ETA_DEFAULT_THEME = "ocean"
+WORKFLOW_ETA_THEMES = {
+    "ocean": {"name": "Ocean", "title": "#243b4c", "bg": "#15232e", "text": "#c8d6df", "muted": "#8ca5b5", "strong": "#f1f7fa", "accent": "#67d5bf", "warning": "#ffba70", "danger": "#ff8895", "track": "#304552", "node": "#c792ea"},
+    "midnight": {"name": "Midnight", "title": "#202744", "bg": "#101426", "text": "#d0d7ee", "muted": "#9caacb", "strong": "#f3f5ff", "accent": "#8ba8ff", "warning": "#f5be7b", "danger": "#ff8f9f", "track": "#2d3655", "node": "#ffd166"},
+    "graphite": {"name": "Graphite", "title": "#383b40", "bg": "#202226", "text": "#d9dce1", "muted": "#a3a9b3", "strong": "#ffffff", "accent": "#b4d3e5", "warning": "#f7bd77", "danger": "#ff929a", "track": "#464b54", "node": "#6ee7d0"},
+    "forest": {"name": "Forest", "title": "#234338", "bg": "#132a21", "text": "#cfe3d6", "muted": "#98bba8", "strong": "#f3fff5", "accent": "#88d99a", "warning": "#eec477", "danger": "#ff9294", "track": "#355344", "node": "#8ecfff"},
+    "ember": {"name": "Ember", "title": "#50352a", "bg": "#2b201b", "text": "#ead5c6", "muted": "#c0a391", "strong": "#fff7f0", "accent": "#ffa867", "warning": "#ffd17f", "danger": "#ff9696", "track": "#5b4234", "node": "#5eead4"},
+    "amethyst": {"name": "Amethyst", "title": "#423052", "bg": "#251a31", "text": "#e0d2ef", "muted": "#b8a0cb", "strong": "#fcf5ff", "accent": "#d2a0ff", "warning": "#f2c37c", "danger": "#ff95ba", "track": "#514064", "node": "#9ce09c"},
+    "paper": {"name": "Paper", "title": "#c9d8df", "bg": "#f4f7f9", "text": "#263b48", "muted": "#536b7c", "strong": "#122936", "accent": "#087b69", "warning": "#915500", "danger": "#b42640", "track": "#d0dce3", "node": "#8250df"},
+}
+
+# Package version (kept equal to the README title by test_panel_contract.py) and the version of the
+# /workflow/eta/status payload contract. Raise STATUS_SCHEMA only for a change older consumers cannot
+# read (removed or re-typed fields); adding fields does not need it. The desktop panel compares it.
+WORKFLOW_ETA_VERSION = "0.2.36"
+# The node inspector's watched data is most of every payload but rarely changes within a run, so a push carries only the
+# parts that changed, and the complete data on the first push of a run, on completion and at least this often (seconds),
+# so a page that missed a push heals itself. The status endpoint always serves the complete data.
+WATCH_FULL_INTERVAL = 15.0
+STATUS_SCHEMA = 1
 _WEAK_TIERS = ("runtime-media-profile", "machine-unmatched", "runtime-video-profile", "runtime-step-scaled", "runtime-video-learned", "runtime-video-provisional", "runtime-few", "runtime-profile", "class", "other-state", "class-other-state", "node-other-state", "node-class", "step-scaled", "resolution-learned", "batch-learned", "frames-learned", "reference-learned")
 
 
@@ -458,11 +483,31 @@ def _workflow_eta_watch_rows(run, workloads, device):
     """Expose the actual fingerprint fields, not an unrelated widget inventory."""
     import json
     rows = {}
+    # Every node re-adds the rows of its whole upstream chain, so the same (node, parameter, value) is serialized many
+    # times (thousands on a 200-node graph). Serialization is pure: remember it. The key includes the exact type and
+    # uses repr for floats, so 1, True and 1.0 (or 0.0 and -0.0) can never share an entry.
+    shown, ids = {}, {}
+    def display(v):
+        kind = type(v)
+        if kind is str or kind is int or kind is bool or v is None:
+            memo = (kind, v)
+        elif kind is float:
+            memo = (kind, repr(v))
+        else:
+            return json.dumps(v, ensure_ascii=False, sort_keys=True, default=str)
+        text = shown.get(memo)
+        if text is None:
+            text = shown[memo] = json.dumps(v, ensure_ascii=False, sort_keys=True, default=str)
+        return text
     def add(nid, key, value, group, raw=None):
         cls = run.graph.get(nid, {}).get("class_type", "Context")
-        def display(v):
-            return json.dumps(v, ensure_ascii=False, sort_keys=True, default=str)
-        rows[(nid, key)] = {"id":json.dumps([nid,cls,key]), "node":nid, "class":cls,
+        try:
+            row_id = ids.get((nid, cls, key))
+            if row_id is None:
+                row_id = ids[(nid, cls, key)] = json.dumps([nid,cls,key])
+        except TypeError:  # unhashable parts: just serialize
+            row_id = json.dumps([nid,cls,key])
+        rows[(nid, key)] = {"id":row_id, "node":nid, "class":cls,
             "parameter":key, "value":display(value), "group":group,
             "input":display(raw) if raw is not None else None}
     add("—", "device", device, "Context")
@@ -965,7 +1010,8 @@ def _workflow_eta_pressure_bucket(machine):
 # ------------------------------------------------------------------ tracker
 class WorkflowETATracker:
     def __init__(self, server, history, resident_fn=None, find_prompt_fn=None, device="",
-                 clock=time.monotonic, wall=time.time, verbose=VERBOSE, start_thread=True, diagnostics=None):
+                 clock=time.monotonic, wall=time.time, verbose=VERBOSE, start_thread=True, diagnostics=None,
+                 theme_path=None, copy_log_path=None):
         self.server = server
         self.diagnostics = diagnostics
         self.hist = history
@@ -975,7 +1021,16 @@ class WorkflowETATracker:
         self.clock = clock
         self.wall = wall
         self.verbose = verbose
+        # "Copy to comfyui.log" is chosen in the node settings and must survive a ComfyUI restart, so it is saved. A saved
+        # choice wins over the WORKFLOW_ETA_VERBOSE default that `verbose` carries in; without one the default applies.
+        self.copy_log_path = copy_log_path
+        saved_copy_log = self._load_copy_log()
+        if saved_copy_log is not None:
+            self.verbose = saved_copy_log
         self.lock = threading.RLock()
+        self.theme_path = theme_path
+        self.theme = WORKFLOW_ETA_DEFAULT_THEME
+        self._load_theme()
         self.run = None
         self.log_session = uuid.uuid4().hex
         self.log_entries = deque(maxlen=250)
@@ -1023,11 +1078,93 @@ class WorkflowETATracker:
             run.diagnostic_disabled=True
             self._log(f"diagnostic recording failed; ETA tracking continues: {error!r}")
 
-    def status_snapshot(self):
+    # ------------------------------------------------------- "Copy to comfyui.log"
+    def _load_copy_log(self):
+        """The saved choice, or None when there is none (or it is unreadable): then the environment default applies."""
+        if not self.copy_log_path:
+            return None
+        try:
+            with open(self.copy_log_path, encoding="utf-8") as handle:
+                value = json.load(handle).get("copy_to_log")
+        except (OSError, ValueError, AttributeError):
+            return None
+        return value if isinstance(value, bool) else None
+
+    def _save_copy_log(self, enabled):
+        if not self.copy_log_path:
+            return
+        try:
+            os.makedirs(os.path.dirname(self.copy_log_path), exist_ok=True)
+            temporary = self.copy_log_path + ".tmp"
+            with open(temporary, "w", encoding="utf-8") as handle:
+                json.dump({"copy_to_log": enabled}, handle)
+            os.replace(temporary, self.copy_log_path)
+        except OSError as error:
+            self._log(f"could not save the Copy to comfyui.log choice: {error!r}")
+
+    def set_copy_to_log(self, enabled):
+        """Switch printing of log entries to the ComfyUI log and remember the choice across restarts. Returns the new value."""
+        if not isinstance(enabled, bool):
+            raise ValueError("enabled must be true or false")
         with self.lock:
-            return dict(self.last_payload or {"state": "idle"},
-                        log_session=self.log_session, logs=list(self.log_entries),
-                        copy_to_log=self.verbose)
+            self.verbose = enabled
+            self._log("copy to comfyui.log " + ("enabled" if enabled else "disabled") + " from the node settings")
+        self._save_copy_log(enabled)
+        return enabled
+
+    # ------------------------------------------------------- shared colour theme
+    def _load_theme(self):
+        """Restore the last theme the node reported, so a panel opened before the page loads still matches."""
+        if not self.theme_path:
+            return
+        try:
+            with open(self.theme_path, encoding="utf-8") as handle:
+                key = json.load(handle).get("theme")
+        except (OSError, ValueError, AttributeError):
+            return
+        if isinstance(key, str) and key in WORKFLOW_ETA_THEMES:
+            self.theme = key
+
+    def _save_theme(self, key):
+        if not self.theme_path:
+            return
+        try:
+            os.makedirs(os.path.dirname(self.theme_path), exist_ok=True)
+            temporary = self.theme_path + ".tmp"
+            with open(temporary, "w", encoding="utf-8") as handle:
+                json.dump({"theme": key}, handle)
+            os.replace(temporary, self.theme_path)
+        except OSError as error:
+            self._log(f"could not save the theme: {error!r}")
+
+    def set_theme(self, key):
+        """Adopt the colour theme the node reports. Returns True when it changed (then saved and pushed)."""
+        if not isinstance(key, str) or key not in WORKFLOW_ETA_THEMES:
+            raise ValueError("unknown theme: " + repr(key))
+        with self.lock:
+            if key == self.theme:
+                return False
+            self.theme = key
+        self._save_theme(key)
+        try:
+            self.server.send_sync(THEME_EVENT, {"theme": key})
+        except Exception as error:
+            self._log(f"theme push failed: {error!r}")
+        return True
+
+    def status_snapshot(self, compact=False):
+        with self.lock:
+            snapshot = dict(self.last_payload or {"state": "idle"},
+                            schema=STATUS_SCHEMA, version=WORKFLOW_ETA_VERSION, theme=self.theme,
+                            log_session=self.log_session, logs=list(self.log_entries),
+                            copy_to_log=self.verbose)
+        if compact:
+            # The desktop panel and the browser page never read the inspector's watched data or the log lines, and those
+            # are most of the payload. The node keeps asking for the complete status.
+            snapshot.pop("watched", None)
+            snapshot.pop("logs", None)
+            snapshot["compact"] = True
+        return snapshot
 
     # ------------------------------------------------------- send_sync wrap
     def attach(self):
@@ -1953,7 +2090,7 @@ class WorkflowETATracker:
             "unresolved":nid in run.workload_unknown}
             for nid,pred in run.preds.items()}
 
-    def _watch_snapshot(self, run):
+    def _watch_rows_snapshot(self, run):
         previous = run.watch_baseline or {}
         old = {row["id"]:row for row in previous.get("rows",[])}
         current = {row["id"]:row for row in run.watch_rows}
@@ -1965,8 +2102,35 @@ class WorkflowETATracker:
                     ("added" if previous else "baseline")))
         for key,row in old.items():
             if key not in current:rows.append(dict(row,previous=row["value"],value=None,change="removed"))
-        return {"rows":rows,"nodes":self._watch_nodes(run),"previous_nodes":previous.get("nodes",{}),
+        return rows
+
+    def _watch_snapshot(self, run):
+        previous = run.watch_baseline or {}
+        return {"rows":self._watch_rows_snapshot(run),"nodes":self._watch_nodes(run),"previous_nodes":previous.get("nodes",{}),
             "baseline_prompt":previous.get("prompt_id"),"prompt_id":run.prompt_id}
+
+    def _watch_delta(self, run, now, force_full=False):
+        """Return (delta, full): the watched data this push must carry, and the complete current data.
+
+        The rows (the bulk) are rebuilt only when run.watch_rows or the baseline was rebound, which is how they change:
+        the list is replaced, never mutated in place. A push carries only the parts that differ from the previous push,
+        except the first push of a run, a final push and one every WATCH_FULL_INTERVAL seconds, which are complete.
+        """
+        previous = run.watch_baseline or {}
+        key = (id(run.watch_rows), len(run.watch_rows), id(run.watch_baseline))
+        sent = getattr(run, "watch_sent", None)
+        rows_changed = sent is None or sent["key"] != key
+        full = {"rows": self._watch_rows_snapshot(run) if rows_changed else sent["data"]["rows"], "nodes": self._watch_nodes(run),
+                "previous_nodes": previous.get("nodes",{}), "baseline_prompt": previous.get("prompt_id"), "prompt_id": run.prompt_id}
+        send_full = force_full or sent is None or now - sent["full_at"] >= WATCH_FULL_INTERVAL
+        if send_full:
+            delta = dict(full, full=True)
+        else:
+            delta = {name: value for name, value in full.items()
+                     if name == "prompt_id" or (name == "rows" and rows_changed) or (name != "rows" and sent["data"].get(name) != value)}
+            delta["full"] = False
+        run.watch_sent = {"key": key, "data": full, "full_at": now if send_full else sent["full_at"]}
+        return delta, full
 
     # ----------------------------------------------------------------- push
     def _push(self, run, force=False, state="running"):
@@ -2002,6 +2166,7 @@ class WorkflowETATracker:
             if getattr(run,"eta_message",None)!=message:
                 run.eta_message=message
                 self._log("ETA status: "+message[0]+"; "+message[1]+("; "+"; ".join(message[2]) if message[2] else ""))
+        watched_delta, watched_full = self._watch_delta(run, now, force_full=(state != "running"))
         payload = {
             "log_session": self.log_session,
             "logs": [entry for entry in self.log_entries if entry["id"] > self._last_log_sent],
@@ -2029,7 +2194,7 @@ class WorkflowETATracker:
             "node": cur["node"] if cur else None, "node_class": meta[0] if meta else None,
             "nodes_done": sum(rec["node"] != (cur["node"] if cur else None) for rec in run.done), "nodes_total": len(run.todo),
             "approximate": run.approximate,
-            "watched": self._watch_snapshot(run),
+            "watched": watched_delta,
             "eta_detail": detail,
         }
         if state=="running":
@@ -2044,7 +2209,7 @@ class WorkflowETATracker:
                 "nodes":self._watch_nodes(run),"completed_node_records":run.done,
                 "unfinished_current_node":({"node":cur["node"],"observed_elapsed":now-cur["t0"]} if cur else None),
                 "cached":sorted(run.cached),"final_status":{k:v for k,v in payload.items() if k not in ("watched","logs")}})
-        self.last_payload = payload
+        self.last_payload = dict(payload, watched=dict(watched_full, full=True))  # status endpoint: always complete
         try:
             self.server.send_sync(PUSH_EVENT, payload)
             if payload["logs"]:
@@ -2068,14 +2233,15 @@ WORKFLOW_ETA_PANEL_HTML = """<!doctype html>
 <html><head><meta charset="utf-8"><title>Workflow ETA</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
- body{margin:0;background:#15232e;color:#c8d6df;font:14px system-ui,sans-serif;display:flex;flex-direction:column;min-height:100vh}
- header{padding:10px 16px;background:#243b4c;color:#f1f7fa;font-weight:600;display:flex;justify-content:space-between}
+ :root{--bg:#15232e;--title:#243b4c;--text:#c8d6df;--muted:#8ca5b5;--strong:#f1f7fa;--accent:#67d5bf;--track:#304552}
+ body{margin:0;background:var(--bg);color:var(--text);font:14px system-ui,sans-serif;display:flex;flex-direction:column;min-height:100vh}
+ header{padding:10px 16px;background:var(--title);color:var(--strong);font-weight:600;display:flex;justify-content:space-between}
  main{padding:20px;display:flex;flex-direction:column;gap:14px}
- .big{font-size:44px;font-weight:700;color:#f1f7fa}
- .muted{color:#8ca5b5}
- .card{background:#304552;border-radius:10px;padding:14px 16px}
- .bar{height:10px;background:#304552;border-radius:5px;overflow:hidden}
- .bar>div{height:100%;background:#67d5bf;width:0%}
+ .big{font-size:44px;font-weight:700;color:var(--strong)}
+ .muted{color:var(--muted)}
+ .card{background:var(--track);border-radius:10px;padding:14px 16px}
+ .bar{height:10px;background:var(--track);border-radius:5px;overflow:hidden}
+ .bar>div{height:100%;background:var(--accent);width:0%}
  .row{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
  #conf{font-weight:600}
 </style></head><body>
@@ -2088,7 +2254,10 @@ WORKFLOW_ETA_PANEL_HTML = """<!doctype html>
  <div class="bar" style="margin-top:8px"><div id="fill"></div></div></div>
 </main>
 <script>
-const CONF=["#e5484d","#f76b15","#ffd43b","#9ce09c","#1a9e4b"];
+const CONF=["#e5484d","#f76b15","#ffd43b","#9ce09c","#1a9e4b"],CONF_LIGHT=["#c62828","#d84315","#8a6d00","#2e7d32","#1b5e20"];
+const THEMES=__WORKFLOW_ETA_THEMES__;let theme="ocean",last=null;
+function applyTheme(key){const t=THEMES[key];if(!t||key===theme)return false;theme=key;const s=document.documentElement.style;
+ for(const k of ["bg","title","text","muted","strong","accent","track"])s.setProperty("--"+k,t[k]);return true;}
 function fmt(s){if(!Number.isFinite(s))return "—";s=Math.max(0,Math.round(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),r=s%60;
  return (h?h+"h ":"")+(m?m+"m ":"")+r+"s";}
 function confLevel(p){if(p.confidence==="lower-bound"||p.lower_bound)return 0;
@@ -2096,9 +2265,10 @@ function confLevel(p){if(p.confidence==="lower-bound"||p.lower_bound)return 0;
  const t=p.tiers||{};const strong=["node-exact","exact","runtime-exact","run-exact","run-few"].some(k=>t[k]>0);
  const weak=["class","node-class","step-scaled","runtime-video-provisional","machine-unmatched"].some(k=>t[k]>0);
  return strong&&!weak?4:3;}
-function render(p){if(!p)return;
+function render(p){if(!p)return;last=p;if(p.theme)applyTheme(p.theme);paint(p);}
+function paint(p){
  const st=p.state||"idle";document.getElementById("state").textContent=st;
- const el=document.getElementById;const running=st==="running",done=st==="done";
+ const el=id=>document.getElementById(id);const running=st==="running",done=st==="done";
  el("label").textContent=done?"Total duration":p.lower_bound?"Known-time subtotal · missing work excluded":"Estimated remaining time";
  let main;if(!running&&!done)main="—";else if(done)main=fmt(p.elapsed);
  else if(p.lower_bound&&Number.isFinite(p.low)&&Number.isFinite(p.high)&&p.high>p.low)main="≥ "+fmt(p.low)+" … "+fmt(p.high);
@@ -2109,40 +2279,128 @@ function render(p){if(!p)return;
  el("nodes").textContent=(running||done)?((p.nodes_done||0)+" / "+(p.nodes_total||0)+" nodes · "+(p.nodes_cached||0)+" cached"):"No connections required";
  el("cold").textContent=running?(p.cold?"Cold start":"Warm start"):"";
  const c=confLevel(p);el("conf").textContent=st==="idle"?"":["Partial estimate · incomplete history","Estimated · provisional","Estimated","Learned · some weak tiers","Learned from history"][c];
- el("conf").style.color=CONF[c];
+ const palette=theme==="paper"?CONF_LIGHT:CONF;el("conf").style.color=palette[c];
  el("msg").textContent=(p.eta_detail&&p.eta_detail.timing_message)||"";
  el("fill").style.width=Math.round(100*Math.max(0,Math.min(1,p.fraction||0)))+"%";
- el("fill").style.background=CONF[c];}
-async function boot(){try{render(await (await fetch("/workflow/eta/status")).json());}catch(e){}
+ el("fill").style.background=palette[c];}
+async function boot(){try{render(await (await fetch("/workflow/eta/status?compact=1")).json());}catch(e){}
  const proto=location.protocol==="https:"?"wss://":"ws://";
  const ws=new WebSocket(proto+location.host+"/ws");
- ws.onmessage=e=>{try{const m=JSON.parse(e.data);if(m.type==="workflow.eta")render(m.data);}catch(err){}};
+ ws.onmessage=e=>{try{const m=JSON.parse(e.data);if(m.type==="workflow.eta")render(m.data);else if(m.type==="workflow.eta.theme"){if(applyTheme(m.data.theme)&&last)paint(last);}}catch(err){}};
  ws.onclose=()=>setTimeout(boot,2000);}
 boot();
 </script></body></html>"""
 
-# ------------------------------------------------------------------ desktop panel launcher
-def _workflow_eta_panel_command(data_home):
-    """Return (argv, None) that opens/activates the installed Workflow ETA Panel, or (None, reason).
+def _workflow_eta_panel_page_html():
+    """The browser panel page with the shared palettes embedded (it starts in Ocean, then follows status.theme)."""
+    themes = json.dumps(WORKFLOW_ETA_THEMES).replace("</", "<\\/")
+    return WORKFLOW_ETA_PANEL_HTML.replace("__WORKFLOW_ETA_THEMES__", themes)
 
-    Mirrors Comfy Kicker's "Open Timer Widget": prefer the desktop entry (it keeps the
-    interpreter chosen by the panel's install.py), then fall back to the installed script.
-    """
-    import shutil
-    import sys
+
+# ------------------------------------------------------------------ desktop panel launcher
+_WORKFLOW_ETA_PANEL_PYTHON = None
+
+
+def _workflow_eta_panel_script():
+    """The panel bundled with this extension; it is run in place, so it updates with the extension."""
     from pathlib import Path
-    base = Path(data_home)
-    desktop = base / "applications" / "workflow-eta-panel.desktop"
-    script = base / "workflow-eta-panel" / "workflow_eta_panel.py"
-    gio = shutil.which("gio")
-    kio = shutil.which("kioclient6") or shutil.which("kioclient")
-    if desktop.is_file() and gio:
-        return [gio, "launch", str(desktop)], None
-    if desktop.is_file() and kio:
-        return [kio, "exec", str(desktop)], None
-    if script.is_file():
-        return [sys.executable, str(script)], None
-    return None, "Workflow ETA Panel is not installed; run install.py in the Workflow_ETA_Panel folder"
+    return Path(__file__).resolve().parent / "Workflow_ETA_Panel" / "workflow_eta_panel.py"
+
+
+def _workflow_eta_is_loopback(remote):
+    """True when aiohttp's request.remote (peer IP text, or None) is a loopback address.
+
+    Handles IPv6 loopback, IPv4-mapped IPv6 ("::ffff:127.0.0.1" from a dual-stack listener) and scope ids.
+    """
+    import ipaddress
+    try:
+        address = ipaddress.ip_address(str(remote or "").split("%")[0])
+    except ValueError:
+        return False
+    return (getattr(address, "ipv4_mapped", None) or address).is_loopback
+
+
+def _workflow_eta_panel_env():
+    """Environment for the panel process: no inherited venv markers pointing at ComfyUI's interpreter."""
+    import os
+    env = dict(os.environ)
+    for key in ("VIRTUAL_ENV", "PYTHONHOME"):
+        env.pop(key, None)
+    return env
+
+
+def _workflow_eta_panel_python(candidates=None):
+    """Return an interpreter that can import PySide6, or None.
+
+    ComfyUI's venv usually lacks PySide6 (it is a system package on Arch/CachyOS), so the system
+    interpreter is tried as well. PATH may resolve python3 to the venv, hence the explicit /usr/bin/python3.
+    An explicit candidates list (tests) bypasses the cache.
+    """
+    global _WORKFLOW_ETA_PANEL_PYTHON
+    import os
+    import shutil
+    import subprocess
+    import sys
+    if candidates is None:
+        if _WORKFLOW_ETA_PANEL_PYTHON and os.path.isfile(_WORKFLOW_ETA_PANEL_PYTHON):
+            return _WORKFLOW_ETA_PANEL_PYTHON
+        candidates = [sys.executable, shutil.which("python3"), "/usr/bin/python3"]
+        cache = True
+    else:
+        cache = False
+    seen = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen or not os.path.isfile(candidate):
+            continue
+        seen.add(candidate)
+        try:
+            usable = subprocess.run([candidate, "-c", "import PySide6.QtWidgets"], stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15,
+                                    env=_workflow_eta_panel_env()).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if usable:
+            if cache:
+                _WORKFLOW_ETA_PANEL_PYTHON = candidate
+            return candidate
+    return None
+
+
+def _workflow_eta_panel_command(server_url, candidates=None):
+    """Return (argv, None) that starts the bundled panel against server_url, or (None, reason)."""
+    script = _workflow_eta_panel_script()
+    if not script.is_file():
+        return None, "The bundled Workflow ETA Panel is missing: " + str(script)
+    python = _workflow_eta_panel_python(candidates)
+    if python is None:
+        return None, ("Workflow ETA Panel needs PySide6 and no Python interpreter with it was found "
+                      "(on Arch/CachyOS: sudo pacman -S pyside6)")
+    return [python, str(script), "--url", server_url], None
+
+
+def _workflow_eta_launch_panel(command, settle=1.2):
+    """Start the panel detached. Return None on success or an error message.
+
+    A launch that finds a running panel exits 0 right after asking it to activate; a panel that is
+    still running after `settle` seconds is considered up. A non-zero early exit reports its stderr tail.
+    """
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryFile() as errors:
+        try:
+            process = subprocess.Popen(command, start_new_session=True, stdin=subprocess.DEVNULL,
+                                       stdout=subprocess.DEVNULL, stderr=errors, env=_workflow_eta_panel_env())
+        except OSError as launch_error:
+            return f"Could not launch the panel: {launch_error}"
+        try:
+            code = process.wait(timeout=settle)
+        except subprocess.TimeoutExpired:
+            return None
+        if code == 0:
+            return None
+        errors.seek(0)
+        tail = errors.read()[-400:].decode("utf-8", "replace").strip()
+        return f"The panel exited with code {code}" + (": " + tail if tail else "")
 
 
 # ------------------------------------------------------------------ install_workflow_eta
@@ -2154,56 +2412,74 @@ def install_workflow_eta():
     from .workflow_eta_diagnostics import WorkflowETADiagnostics, WorkflowETAExportBusy
     diagnostic_error=None
     try:
-        diagnostics=WorkflowETADiagnostics(os.path.join(os.path.dirname(path),"diagnostics")) if os.environ.get("WORKFLOW_ETA_DIAGNOSTICS","1")!="0" else None
+        diagnostics=WorkflowETADiagnostics(os.path.join(os.path.dirname(path),"diagnostics"),extension_version=WORKFLOW_ETA_VERSION) if os.environ.get("WORKFLOW_ETA_DIAGNOSTICS","1")!="0" else None
     except Exception as error:
         diagnostics=None;diagnostic_error=repr(error)
     tracker = WorkflowETATracker(PromptServer.instance, WorkflowETAHistory(path), resident_fn=workflow_eta_resident_identities,
-                      device=_workflow_eta_device_name(),diagnostics=diagnostics)
+                      device=_workflow_eta_device_name(),diagnostics=diagnostics,
+                      theme_path=os.path.join(os.path.dirname(path), "theme.json"),
+                      copy_log_path=os.path.join(os.path.dirname(path), "copy_to_log.json"))
     if diagnostic_error:tracker._log("diagnostic directory unavailable: "+diagnostic_error)
     from aiohttp import web
 
     @PromptServer.instance.routes.get("/workflow/eta/status")
     async def workflow_eta_status(request):
         with tracker.lock:
-            return web.json_response(tracker.status_snapshot(), headers={"Cache-Control": "no-store"})
+            compact = request.query.get("compact") in ("1", "true")
+            return web.json_response(tracker.status_snapshot(compact=compact), headers={"Cache-Control": "no-store"})
+
+    @PromptServer.instance.routes.post("/workflow/eta/theme")
+    async def workflow_eta_theme(request):
+        # The node reports its colour theme so every panel can match it. Purely cosmetic and validated against the
+        # known themes, so unlike open_panel it is not limited to loopback (the browser may be on another machine).
+        try:
+            data = await request.json()
+            key = data.get("theme") if isinstance(data, dict) else None
+            if not isinstance(key, str) or key not in WORKFLOW_ETA_THEMES:
+                raise ValueError
+        except ValueError:
+            return web.json_response({"ok": False, "error": "theme must be one of: " + ", ".join(WORKFLOW_ETA_THEMES)}, status=400)
+        changed = tracker.set_theme(key)
+        return web.json_response({"ok": True, "theme": key, "changed": changed})
 
     @PromptServer.instance.routes.get("/workflow/eta/panel")
     async def workflow_eta_panel_page(request):
-        return web.Response(text=WORKFLOW_ETA_PANEL_HTML, content_type="text/html",
+        return web.Response(text=_workflow_eta_panel_page_html(), content_type="text/html",
                             headers={"Cache-Control": "no-store"})
 
     @PromptServer.instance.routes.post("/workflow/eta/copy_log")
     async def workflow_eta_copy_log(request):
-        # Runtime switch for the "Copy to comfyui.log" node-settings toggle:
-        # when ON, tracker log entries are also printed to the ComfyUI log.
+        # Runtime switch for the "Copy to comfyui.log" node-settings toggle: when ON, tracker log entries are also
+        # printed to the ComfyUI log. The choice is saved, so it survives a ComfyUI restart.
         try:
             body = await request.json()
         except Exception:
             body = None
         if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
             return web.json_response({"ok": False, "error": 'expected a JSON body like {"enabled": true}'}, status=400)
-        with tracker.lock:
-            tracker.verbose = body["enabled"]
-            tracker._log("copy to comfyui.log " + ("enabled" if tracker.verbose else "disabled") +
-                         " from the node settings")
-            return web.json_response({"ok": True, "copy_to_log": tracker.verbose})
+        return web.json_response({"ok": True, "copy_to_log": tracker.set_copy_to_log(body["enabled"])})
 
     @PromptServer.instance.routes.post("/workflow/eta/open_panel")
     async def workflow_eta_open_panel(request):
-        # Launching a local desktop app is a side effect: loopback clients only.
-        if request.remote_addr not in ("127.0.0.1", "::1"):
-            return web.json_response({"ok": False, "error": "The panel can only be opened from the local machine"}, status=403)
-        import subprocess
-        from pathlib import Path
-        data_home = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local/share")
-        command, error = _workflow_eta_panel_command(data_home)
-        if command is None:
-            return web.json_response({"ok": False, "error": error}, status=404)
         try:
-            subprocess.Popen(command, start_new_session=True,
-                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except OSError as launch_error:
-            return web.json_response({"ok": False, "error": f"Could not launch the panel: {launch_error}"}, status=500)
+            # Launching a local desktop app is a side effect: loopback clients only (aiohttp calls it .remote).
+            if not _workflow_eta_is_loopback(request.remote):
+                return web.json_response({"ok": False, "error": "The panel can only be opened from the local machine"}, status=403)
+            import asyncio
+            loop = asyncio.get_running_loop()
+            # The panel follows the server this request reached, so a second ComfyUI on another port works.
+            server_url = str(request.url.origin())
+            # Interpreter probing and the launch settle wait block, so keep them off the event loop.
+            command, error = await loop.run_in_executor(None, _workflow_eta_panel_command, server_url)
+            if command is None:
+                return web.json_response({"ok": False, "error": error}, status=404)
+            launch_error = await loop.run_in_executor(None, _workflow_eta_launch_panel, command)
+            if launch_error:
+                return web.json_response({"ok": False, "error": launch_error}, status=500)
+        except Exception as failure:
+            # Always answer with a readable reason (the node shows it as a toast), never a bare 500.
+            tracker._log(f"open_panel failed: {failure!r}")
+            return web.json_response({"ok": False, "error": f"Workflow ETA could not open the panel: {failure!r}"}, status=500)
         return web.json_response({"ok": True, "message": "Workflow ETA Panel requested; an already-open panel is activated"})
 
     @PromptServer.instance.routes.get("/workflow/eta/diagnostics/export")

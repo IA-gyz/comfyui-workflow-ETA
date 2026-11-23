@@ -7,7 +7,7 @@ import workflow_eta_tracker as t
 
 html = t.WORKFLOW_ETA_PANEL_HTML
 assert "<title>Workflow ETA</title>" in html
-assert 'fetch("/workflow/eta/status")' in html
+assert 'fetch("/workflow/eta/status?compact=1")' in html  # the page never reads the inspector data, so it asks for the compact status
 assert '"/ws"' in html and "workflow.eta" in html
 assert "text/html" in inspect.getsource(t.install_workflow_eta)
 src = inspect.getsource(t.install_workflow_eta)

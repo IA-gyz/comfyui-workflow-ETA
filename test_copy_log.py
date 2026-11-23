@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory() as path:
 
 src = inspect.getsource(install_workflow_eta)
 assert 'routes.post("/workflow/eta/copy_log")' in src
-assert '"enabled"' in src and 'tracker.verbose = body["enabled"]' in src
+assert '"enabled"' in src and 'tracker.set_copy_to_log(body["enabled"])' in src  # persisted: see test_copy_log_persistence.py
 assert 'copy_to_log=self.verbose' in inspect.getsource(WorkflowETATracker.status_snapshot)
 assert '"copy_to_log": self.verbose' in inspect.getsource(WorkflowETATracker._push)
 

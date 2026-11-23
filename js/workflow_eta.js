@@ -73,6 +73,23 @@ function workflowLogKind(message) {
 const WORKFLOW_LOG_LABELS = {info:"INFO",run:"RUN",node:"NODE",success:"DONE",timing:"CHECK",warning:"WARN",error:"ERROR"};
 function workflowThemeKey(value) { return Object.hasOwn(WORKFLOW_ETA_THEMES, value) ? value : "ocean"; }
 function workflowTheme(node) { return WORKFLOW_ETA_THEMES[workflowThemeKey(node.properties?.theme)]; }
+// Every Workflow ETA panel (desktop and browser) follows the node's colour theme: tell the server when it loads or
+// changes. A burst (loading a graph with several nodes) collapses into one report; the last node wins. Cosmetic, so a
+// failure is ignored and the panels simply keep their current colours.
+let workflowThemeReportTimer = null;
+function reportWorkflowETATheme(node) {
+    const send = () => {
+        const theme = workflowThemeKey(node.properties?.theme);
+        try {
+            Promise.resolve(api.fetchApi("/workflow/eta/theme", {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ theme }),
+            })).catch(() => {});
+        } catch { /* cosmetic */ }
+    };
+    if (typeof setTimeout !== "function") { send(); return; }
+    if (typeof clearTimeout === "function") clearTimeout(workflowThemeReportTimer);
+    workflowThemeReportTimer = setTimeout(send, 200);
+}
 
 const WORKFLOW_BAR_ANIMATIONS = {
     static: "Static", stripes: "Flowing stripes", shimmer: "Shimmer", pulse: "Pulse",
@@ -331,18 +348,25 @@ function openWorkflowETABrowserPanel() {
     if (typeof w.open === "function") w.open("/workflow/eta/panel", "workflow-eta-panel", "width=560,height=760");
 }
 
+function notifyWorkflowETAPanel(message) {
+    // ComfyUI's toast service when the frontend provides it; the console otherwise.
+    const toast = app.extensionManager?.toast;
+    if (toast && typeof toast.add === "function") toast.add({ severity: "warn", summary: "Workflow ETA Panel", detail: message, life: 10000 });
+    else console.warn("[workflow-eta] could not open the desktop panel:", message);
+}
+
 async function openWorkflowETAPanel() {
-    // Same behavior as Comfy Kicker's "Open Timer Widget": the server launches the
-    // installed desktop panel; its single-instance guard activates an existing window.
+    // The server starts the panel bundled with this extension for the server this page is on;
+    // its single-instance guard activates an existing window. Failures are shown, not swallowed.
     try {
         const response = await api.fetchApi("/workflow/eta/open_panel", { method: "POST" });
         if (!response.ok) {
             let message = "HTTP " + response.status;
             try { message = (await response.json()).error || message; } catch {}
-            console.warn("[workflow-eta] could not open the desktop panel:", message);
+            notifyWorkflowETAPanel(message);
         }
     } catch (error) {
-        console.warn("[workflow-eta] panel request failed", error);
+        notifyWorkflowETAPanel("request failed: " + (error?.message || error));
     }
 }
 
@@ -393,6 +417,7 @@ function openWorkflowETASettings(node) {
     copyLabel.append(copyToggle, make("span", "Copy to comfyui.log"));
     dialog.append(copyLabel);
     copyToggle.addEventListener("change", () => node.setWorkflowCopyToLog(copyToggle.checked));
+    dialog._workflowSyncCopy = (enabled) => { copyToggle.checked = enabled; };
     const diagnosticLabel=make("label","Recent runs to export (1–100)");diagnosticLabel.style.cssText="display:block;margin-top:18px";
     const diagnosticCount=make("input");diagnosticCount.type="number";diagnosticCount.min="1";diagnosticCount.max="100";diagnosticCount.value="20";diagnosticCount.style.cssText=themes.style.cssText;
     diagnosticLabel.append(diagnosticCount);dialog.append(diagnosticLabel);
@@ -451,13 +476,59 @@ let connected = true;
 let revision = 0;
 let snapshotRequest = 0;
 
+// The server sends the watched data in full on the first push of a run, on completion and every ~15 s, and in between only
+// the parts that changed (the rows are the bulk and rarely change). Merge a partial update into what this page already has.
+// A push without any watched data (the execution_start stub, idle) keeps the current run's data instead of blanking it.
+let workflowWatchedFetchedAt = 0;
+function mergeWorkflowWatched(payload) {
+    const part = payload.watched;
+    if (part === undefined) {
+        if (latest.watched && payload.prompt_id && latest.watched.prompt_id === payload.prompt_id) payload.watched = latest.watched;
+        return;
+    }
+    if (!part || typeof part !== "object" || part.full !== false) return;  // no flag = an older server: complete
+    const base = latest.watched;
+    if (base && base.prompt_id === part.prompt_id) { payload.watched = { ...base, ...part }; return; }
+    payload.watched = undefined;  // a partial update with nothing to merge into: get the complete data
+    fetchWorkflowWatchedBase();
+}
+async function fetchWorkflowWatchedBase() {
+    const now = Date.now();
+    if (now - workflowWatchedFetchedAt < 2000) return;
+    workflowWatchedFetchedAt = now;
+    try {
+        const response = await api.fetchApi("/workflow/eta/status");
+        if (!response.ok) return;
+        const watched = (await response.json()).watched;
+        if (watched && !latest.watched && latest.prompt_id === watched.prompt_id) {
+            latest = { ...latest, watched };
+            workflowWatchDialog?._workflowRender?.();
+            revision++;
+            for (const node of displays) node.setDirtyCanvas(true, false);
+        }
+    } catch (error) {
+        console.debug("[workflow-eta] watched data unavailable", error);
+    }
+}
+
+// The server owns "Copy to comfyui.log" (it is saved there and survives a ComfyUI restart); the node property only mirrors it.
+// Apply a value to every display and to any open settings dialog, so what is shown is what the server has.
+function applyWorkflowCopyToLog(enabled) {
+    latest.copy_to_log = enabled;
+    for (const node of displays) {
+        node.properties ??= {};
+        node.properties.copy_to_log = enabled;
+        node._workflowSettingsDialog?._workflowSyncCopy?.(enabled);
+    }
+}
+let workflowCopyTicket = 0;
+
 function updateWorkflowETA(payload) {
     if (!payload || typeof payload !== "object") return;
     mergeWorkflowLogs(payload);
+    mergeWorkflowWatched(payload);
     latest = payload;
-    if (typeof payload.copy_to_log === "boolean") {
-        for (const node of displays) { node.properties ??= {}; node.properties.copy_to_log = payload.copy_to_log; }
-    }
+    if (typeof payload.copy_to_log === "boolean") applyWorkflowCopyToLog(payload.copy_to_log);
     workflowWatchDialog?._workflowRender?.();
     revision++;
     for (const node of displays) node.setDirtyCanvas(true, false);
@@ -512,6 +583,7 @@ app.registerExtension({
             }
             onAdded() {
                 displays.add(this); this.setDirtyCanvas(true, false); scheduleWorkflowBarAnimation();
+                reportWorkflowETATheme(this);
                 if (typeof queueMicrotask === "function") queueMicrotask(() => { this._workflowRestoring = false; });
             }
             onRemoved() {
@@ -535,21 +607,32 @@ app.registerExtension({
             }
             setWorkflowCopyToLog(value) {
                 const enabled = value === true;
+                const previous = typeof latest.copy_to_log === "boolean" ? latest.copy_to_log : this.properties?.copy_to_log !== false;
+                const ticket = ++workflowCopyTicket;
                 this.properties ??= {};
+                applyWorkflowCopyToLog(enabled);
                 this.properties.copy_to_log = enabled;
-                for (const node of displays) {
-                    if (node === this) continue;
-                    node.properties ??= {};
-                    node.properties.copy_to_log = enabled;
-                }
-                latest.copy_to_log = enabled;
                 this.setDirtyCanvas(true, false);
                 this.graph?.change?.();
-                api.fetchApi("/workflow/eta/copy_log", {
+                // Show the change at once, then confirm it with the server and keep what the server answers: if the request
+                // fails, go back to the previous value instead of leaving a checkbox that does not match the server.
+                Promise.resolve(api.fetchApi("/workflow/eta/copy_log", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ enabled })
-                }).catch(() => {});
+                })).then(async (response) => {
+                    const body = response && response.ok ? await response.json() : null;
+                    if (ticket !== workflowCopyTicket) return;  // a newer choice is already in flight
+                    const confirmed = typeof body?.copy_to_log === "boolean" ? body.copy_to_log : previous;
+                    if (!(typeof body?.copy_to_log === "boolean")) console.warn("[workflow-eta] could not save the Copy to comfyui.log choice");
+                    applyWorkflowCopyToLog(confirmed);
+                    for (const node of displays) node.setDirtyCanvas(true, false);
+                }).catch(() => {
+                    if (ticket !== workflowCopyTicket) return;
+                    console.warn("[workflow-eta] could not save the Copy to comfyui.log choice");
+                    applyWorkflowCopyToLog(previous);
+                    for (const node of displays) node.setDirtyCanvas(true, false);
+                });
             }
             setWorkflowBarAnimation(value) {
                 this.properties ??= {};
@@ -563,6 +646,7 @@ app.registerExtension({
                 const theme = workflowTheme(this);
                 this.color = theme.title; this.bgcolor = theme.bg;
                 this.setDirtyCanvas(true, true);
+                reportWorkflowETATheme(this);
                 this.graph?.change?.();
             }
             onMouseDown(event, pos) {
@@ -661,6 +745,7 @@ app.registerExtension({
                 if (this.setSize) this.setSize(size); else this.size = size;
                 this.setDirtyCanvas(true, false);
                 this._workflowRestoring = false;
+                reportWorkflowETATheme(this);
             }
             onPropertyChanged(name, value) {
                 if (this._workflowRestoring) return true;
